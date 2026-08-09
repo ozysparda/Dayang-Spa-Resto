@@ -116,7 +116,7 @@ export function useParallelFetch<T extends Record<string, any>>(
         const results = await Promise.all(promises);
 
         if (mountedRef.current && !signal?.aborted) {
-          const mapped = results.reduce((acc, res, idx) => {
+          const mapped = results.reduce((acc: any, res, idx) => {
             acc[requests[idx].key] = res.data;
             return acc;
           }, {} as T);

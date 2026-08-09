@@ -18,7 +18,10 @@ export default function Attendance() {
   const { data: recordsData, loading, refetch } = useAsyncData<AttendanceRecord[]>('/attendance');
   const clockInMutation = useAsyncMutation();
   const clockOutMutation = useAsyncMutation();
+
+  const [currentStatus] = useState<any>(null);
   const breakStartMutation = useAsyncMutation();
+
   const breakEndMutation = useAsyncMutation();
 
   const records = recordsData || [];

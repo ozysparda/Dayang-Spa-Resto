@@ -1,7 +1,5 @@
-import { useState, useEffect } from 'react';
 import { Calendar, Users, Clock, AlertCircle, Activity, UserCheck } from 'lucide-react';
 import { useParallelFetch } from '../hooks/useAsyncData';
-import toast from 'react-hot-toast';
 
 interface DashboardStats {
   bookingsToday: number;
@@ -48,7 +46,7 @@ type DashboardData = {
 };
 
 export default function Dashboard() {
-  const { data, loading, error, refetch } = useParallelFetch<DashboardData>([
+  const { data, loading } = useParallelFetch<DashboardData>([
     { key: 'stats', url: '/dashboard/stats' },
     { key: 'staffStatus', url: '/dashboard/staff-status' },
     { key: 'nextBookings', url: '/dashboard/next-bookings' },
