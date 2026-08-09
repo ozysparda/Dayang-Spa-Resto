@@ -2,10 +2,17 @@
   "version": 2,
   "builds": [
     {
+      "src": "api/index.ts",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": ["server/src/**", "server/package.json"]
+      }
+    },
+    {
       "src": "package.json",
       "use": "@vercel/static-build",
       "config": {
-        "buildCommand": "cd server && npm run build && cd ../client && npm run build",
+        "buildCommand": "npm run build:client",
         "outputDirectory": "client/dist"
       }
     }
@@ -13,7 +20,7 @@
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "server/dist/index.js"
+      "dest": "/api/index.ts"
     },
     {
       "src": "/(.*)",
