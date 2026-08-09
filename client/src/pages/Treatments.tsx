@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
-import { Plus, Search, Edit, Trash2 } from 'lucide-react';
-import api from '../services/api';
+import { useState } from 'react';
+import { Plus, Search } from 'lucide-react';
+import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
+import toast from 'react-hot-toast';
 
 interface Treatment {
   id: string;
@@ -13,12 +14,16 @@ interface Treatment {
 }
 
 export default function Treatments() {
-  const [treatments, setTreatments] = useState<Treatment[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: treatmentsData, loading, refetch } = useAsyncData<Treatment[]>('/treatments');
+  const createTreatment = useAsyncMutation();
+  const updateTreatment = useAsyncMutation();
+  const deleteTreatment = useAsyncMutation();
+
+  const treatments = treatmentsData || [];
+
   const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [editingTreatment, setEditingTreatment] = useState<Treatment | null>(null);
-
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -27,34 +32,22 @@ export default function Treatments() {
     defaultCommission: 0,
   });
 
-  useEffect(() => {
-    fetchTreatments();
-  }, []);
-
-  const fetchTreatments = async () => {
-    try {
-      const res = await api.get('/treatments');
-      setTreatments(res.data);
-    } catch (error) {
-      console.error('Failed to fetch treatments:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       if (editingTreatment) {
-        await api.patch(`/treatments/${editingTreatment.id}`, formData);
+        await updateTreatment(`/treatments/${editingTreatment.id}`, 'PATCH', formData);
+        toast.success('Treatment updated successfully');
       } else {
-        await api.post('/treatments', formData);
+        await createTreatment('/treatments', 'POST', formData);
+        toast.success('Treatment added successfully');
       }
       setShowModal(false);
-      fetchTreatments();
+      refetch();
       resetForm();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to save treatment:', error);
+      toast.error('Failed to save treatment');
     }
   };
 
@@ -73,10 +66,12 @@ export default function Treatments() {
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to deactivate this treatment?')) return;
     try {
-      await api.delete(`/treatments/${id}`);
-      fetchTreatments();
-    } catch (error) {
+      await deleteTreatment(`/treatments/${id}`, 'DELETE');
+      refetch();
+      toast.success('Treatment deactivated');
+    } catch (error: any) {
       console.error('Failed to delete treatment:', error);
+      toast.error('Failed to delete treatment');
     }
   };
 

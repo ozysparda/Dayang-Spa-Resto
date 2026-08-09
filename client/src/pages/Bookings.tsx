@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Search, Filter } from 'lucide-react';
-import api from '../services/api';
+import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
+import toast from 'react-hot-toast';
 
 interface Booking {
   id: string;
@@ -34,14 +35,18 @@ interface Staff {
 }
 
 export default function Bookings() {
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [treatments, setTreatments] = useState<Treatment[]>([]);
-  const [staff, setStaff] = useState<Staff[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: bookingsData, loading, refetch } = useAsyncData<Booking[]>('/bookings');
+  const { data: treatmentsData } = useAsyncData<Treatment[]>('/treatments');
+  const { data: staffData } = useAsyncData<Staff[]>('/staff');
+  const createBooking = useAsyncMutation();
+
+  const bookings = bookingsData || [];
+  const treatments = treatmentsData || [];
+  const staff = staffData || [];
+
   const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
-
   const [formData, setFormData] = useState({
     customerName: '',
     treatmentId: '',
@@ -55,36 +60,17 @@ export default function Bookings() {
     notes: '',
   });
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
-    try {
-      const [bookingsRes, treatmentsRes, staffRes] = await Promise.all([
-        api.get('/bookings'),
-        api.get('/treatments'),
-        api.get('/staff'),
-      ]);
-      setBookings(bookingsRes.data);
-      setTreatments(treatmentsRes.data);
-      setStaff(staffRes.data);
-    } catch (error) {
-      console.error('Failed to fetch data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.post('/bookings', formData);
+      await createBooking('/bookings', 'POST', formData);
       setShowModal(false);
-      fetchData();
+      refetch();
       resetForm();
-    } catch (error) {
+      toast.success('Booking created successfully');
+    } catch (error: any) {
       console.error('Failed to create booking:', error);
+      toast.error('Failed to create booking');
     }
   };
 

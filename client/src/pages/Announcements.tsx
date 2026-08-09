@@ -1,6 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Plus, Bell, Check } from 'lucide-react';
 import api from '../services/api';
+import { useAsyncData } from '../hooks/useAsyncData';
+import { useAuthStore } from '../stores/authStore';
+import toast from 'react-hot-toast';
 
 interface Announcement {
   id: string;
@@ -12,10 +15,12 @@ interface Announcement {
 }
 
 export default function Announcements() {
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: announcementsData, loading, refetch } = useAsyncData<Announcement[]>('/announcements');
+  const announcements = announcementsData || [];
+  const { user } = useAuthStore();
+  const isAdmin = ['ADMIN', 'DEVELOPER'].includes(user?.role || '');
+
   const [showModal, setShowModal] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -24,26 +29,7 @@ export default function Announcements() {
     targetRole: '',
   });
 
-  useEffect(() => {
-    fetchAnnouncements();
-    checkUserRole();
-  }, []);
-
-  const checkUserRole = () => {
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
-    setIsAdmin(['ADMIN', 'DEVELOPER'].includes(user.role));
-  };
-
-  const fetchAnnouncements = async () => {
-    try {
-      const res = await api.get('/announcements');
-      setAnnouncements(res.data);
-    } catch (error) {
-      console.error('Failed to fetch announcements:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const fetchAnnouncements = refetch;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,8 +38,10 @@ export default function Announcements() {
       setShowModal(false);
       fetchAnnouncements();
       resetForm();
-    } catch (error) {
+      toast.success('Announcement created successfully');
+    } catch (error: any) {
       console.error('Failed to create announcement:', error);
+      toast.error('Failed to create announcement');
     }
   };
 
@@ -61,8 +49,10 @@ export default function Announcements() {
     try {
       await api.post(`/announcements/${id}/read`);
       fetchAnnouncements();
-    } catch (error) {
+      toast.success('Marked as read');
+    } catch (error: any) {
       console.error('Failed to mark as read:', error);
+      toast.error('Failed to mark as read');
     }
   };
 
@@ -77,12 +67,12 @@ export default function Announcements() {
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
       day: 'numeric',
       year: 'numeric',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
     });
   };
 
@@ -96,6 +86,7 @@ export default function Announcements() {
 
   return (
     <div className="p-8">
+
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Announcements</h1>
         {isAdmin && (

@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { User, Mail, Phone, Lock } from 'lucide-react';
-import api from '../services/api';
+import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
+import toast from 'react-hot-toast';
 
 interface UserProfile {
   id: string;
@@ -14,40 +15,26 @@ interface UserProfile {
 }
 
 export default function Profile() {
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const { data: profileData, loading, refetch } = useAsyncData<UserProfile>('/auth/me');
+  const changePassword = useAsyncMutation();
+  const profile = profileData;
 
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
     newPassword: '',
     confirmPassword: '',
   });
 
-  useEffect(() => {
-    fetchProfile();
-  }, []);
-
-  const fetchProfile = async () => {
-    try {
-      const res = await api.get('/auth/me');
-      setProfile(res.data);
-    } catch (error) {
-      console.error('Failed to fetch profile:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
     if (passwordData.newPassword !== passwordData.confirmPassword) {
-      alert('New passwords do not match');
+      toast.error('New passwords do not match');
       return;
     }
 
     try {
-      await api.patch('/auth/password', {
+      await changePassword('/auth/password', 'PATCH', {
         currentPassword: passwordData.currentPassword,
         newPassword: passwordData.newPassword,
       });
@@ -57,10 +44,9 @@ export default function Profile() {
         newPassword: '',
         confirmPassword: '',
       });
-      alert('Password changed successfully');
-    } catch (error) {
+      toast.success('Password changed successfully');
+    } catch (error: any) {
       console.error('Failed to change password:', error);
-      alert('Failed to change password');
     }
   };
 

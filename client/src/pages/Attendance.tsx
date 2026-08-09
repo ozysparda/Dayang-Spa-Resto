@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Play, Square, Coffee } from 'lucide-react';
-import api from '../services/api';
+import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
+import toast from 'react-hot-toast';
 
 interface AttendanceRecord {
   id: string;
@@ -14,65 +15,55 @@ interface AttendanceRecord {
 }
 
 export default function Attendance() {
-  const [records, setRecords] = useState<AttendanceRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [currentStatus, setCurrentStatus] = useState({
-    clockedIn: false,
-    onBreak: false,
-  });
+  const { data: recordsData, loading, refetch } = useAsyncData<AttendanceRecord[]>('/attendance');
+  const clockInMutation = useAsyncMutation();
+  const clockOutMutation = useAsyncMutation();
+  const breakStartMutation = useAsyncMutation();
+  const breakEndMutation = useAsyncMutation();
 
-  useEffect(() => {
-    fetchAttendance();
-  }, []);
-
-  const fetchAttendance = async () => {
-    try {
-      const res = await api.get('/attendance');
-      setRecords(res.data);
-    } catch (error) {
-      console.error('Failed to fetch attendance:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const records = recordsData || [];
 
   const handleClockIn = async () => {
     try {
-      await api.post('/attendance/clock-in');
-      fetchAttendance();
-      setCurrentStatus({ ...currentStatus, clockedIn: true });
-    } catch (error) {
+      await clockInMutation('/attendance/clock-in', 'POST');
+      refetch();
+      toast.success('Clocked in successfully');
+    } catch (error: any) {
       console.error('Failed to clock in:', error);
+      toast.error('Failed to clock in');
     }
   };
 
   const handleClockOut = async () => {
     try {
-      await api.post('/attendance/clock-out');
-      fetchAttendance();
-      setCurrentStatus({ ...currentStatus, clockedIn: false, onBreak: false });
-    } catch (error) {
+      await clockOutMutation('/attendance/clock-out', 'POST');
+      refetch();
+      toast.success('Clocked out successfully');
+    } catch (error: any) {
       console.error('Failed to clock out:', error);
+      toast.error('Failed to clock out');
     }
   };
 
   const handleBreakStart = async () => {
     try {
-      await api.post('/attendance/break-start');
-      fetchAttendance();
-      setCurrentStatus({ ...currentStatus, onBreak: true });
-    } catch (error) {
+      await breakStartMutation('/attendance/break-start', 'POST');
+      refetch();
+      toast.success('Break started');
+    } catch (error: any) {
       console.error('Failed to start break:', error);
+      toast.error('Failed to start break');
     }
   };
 
   const handleBreakEnd = async () => {
     try {
-      await api.post('/attendance/break-end');
-      fetchAttendance();
-      setCurrentStatus({ ...currentStatus, onBreak: false });
-    } catch (error) {
+      await breakEndMutation('/attendance/break-end', 'POST');
+      refetch();
+      toast.success('Break ended');
+    } catch (error: any) {
       console.error('Failed to end break:', error);
+      toast.error('Failed to end break');
     }
   };
 

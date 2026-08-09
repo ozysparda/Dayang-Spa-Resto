@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Calendar, Users, Clock, AlertCircle, Activity, UserCheck } from 'lucide-react';
-import api from '../services/api';
+import { useParallelFetch } from '../hooks/useAsyncData';
+import toast from 'react-hot-toast';
 
 interface DashboardStats {
   bookingsToday: number;
@@ -39,43 +40,32 @@ interface Activity {
   createdAt: string;
 }
 
+type DashboardData = {
+  stats: DashboardStats;
+  staffStatus: StaffStatus[];
+  nextBookings: NextBooking[];
+  activities: Activity[];
+};
+
 export default function Dashboard() {
-  const [stats, setStats] = useState<DashboardStats>({
+  const { data, loading, error, refetch } = useParallelFetch<DashboardData>([
+    { key: 'stats', url: '/dashboard/stats' },
+    { key: 'staffStatus', url: '/dashboard/staff-status' },
+    { key: 'nextBookings', url: '/dashboard/next-bookings' },
+    { key: 'activities', url: '/dashboard/activity?limit=10' },
+  ]);
+
+  const stats = data?.stats || {
     bookingsToday: 0,
     staffOnline: 0,
     pendingBookings: 0,
     staffOnBreak: 0,
     staffOnTreatment: 0,
     availableTherapists: 0,
-  });
-  const [staffStatus, setStaffStatus] = useState<StaffStatus[]>([]);
-  const [nextBookings, setNextBookings] = useState<NextBooking[]>([]);
-  const [activities, setActivities] = useState<Activity[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
-
-  const fetchDashboardData = async () => {
-    try {
-      const [statsRes, staffRes, bookingsRes, activityRes] = await Promise.all([
-        api.get('/dashboard/stats'),
-        api.get('/dashboard/staff-status'),
-        api.get('/dashboard/next-bookings'),
-        api.get('/dashboard/activity?limit=10'),
-      ]);
-
-      setStats(statsRes.data);
-      setStaffStatus(staffRes.data);
-      setNextBookings(bookingsRes.data);
-      setActivities(activityRes.data);
-    } catch (error) {
-      console.error('Failed to fetch dashboard data:', error);
-    } finally {
-      setLoading(false);
-    }
   };
+  const staffStatus = data?.staffStatus || [];
+  const nextBookings = data?.nextBookings || [];
+  const activities = data?.activities || [];
 
   const getStatusColor = (status: string) => {
     switch (status) {

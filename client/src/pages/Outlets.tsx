@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Plus, Search, MapPin, Phone } from 'lucide-react';
-import api from '../services/api';
+import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
+import toast from 'react-hot-toast';
 
 interface Outlet {
   id: string;
@@ -11,41 +12,32 @@ interface Outlet {
 }
 
 export default function Outlets() {
-  const [outlets, setOutlets] = useState<Outlet[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: outletsData, loading, refetch } = useAsyncData<Outlet[]>('/outlets');
+  const createOutlet = useAsyncMutation();
+  const updateOutlet = useAsyncMutation();
+  const deleteOutlet = useAsyncMutation();
+
+  const outlets = outletsData || [];
+
   const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-
   const [formData, setFormData] = useState({
     name: '',
     address: '',
     phone: '',
   });
 
-  useEffect(() => {
-    fetchOutlets();
-  }, []);
-
-  const fetchOutlets = async () => {
-    try {
-      const res = await api.get('/outlets');
-      setOutlets(res.data);
-    } catch (error) {
-      console.error('Failed to fetch outlets:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.post('/outlets', formData);
+      await createOutlet('/outlets', 'POST', formData);
       setShowModal(false);
-      fetchOutlets();
+      refetch();
       resetForm();
-    } catch (error) {
+      toast.success('Outlet created successfully');
+    } catch (error: any) {
       console.error('Failed to create outlet:', error);
+      toast.error('Failed to create outlet');
     }
   };
 

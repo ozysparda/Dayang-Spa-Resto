@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Settings as SettingsIcon, Save } from 'lucide-react';
-import api from '../services/api';
+import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
+import toast from 'react-hot-toast';
 
 interface SystemSettings {
   id: string;
@@ -13,7 +14,10 @@ interface SystemSettings {
 }
 
 export default function SystemSettings() {
-  const [loading, setLoading] = useState(true);
+  const { data: settingsData, loading, refetch } = useAsyncData<SystemSettings>('/settings');
+  const updateSettings = useAsyncMutation();
+
+  const settings = settingsData;
   const [saving, setSaving] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -25,37 +29,26 @@ export default function SystemSettings() {
     timezone: 'Asia/Jakarta',
   });
 
-  useEffect(() => {
-    fetchSettings();
-  }, []);
-
-  const fetchSettings = async () => {
-    try {
-      const res = await api.get('/settings');
-      setFormData({
-        outletName: res.data.outletName || '',
-        outletAddress: res.data.outletAddress || '',
-        outletPhone: res.data.outletPhone || '',
-        operatingHours: res.data.operatingHours || '',
-        currency: res.data.currency || 'IDR',
-        timezone: res.data.timezone || 'Asia/Jakarta',
-      });
-    } catch (error) {
-      console.error('Failed to fetch settings:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Update form when settings load
+  if (settings && formData.outletName === '') {
+    setFormData({
+      outletName: settings.outletName || '',
+      outletAddress: settings.outletAddress || '',
+      outletPhone: settings.outletPhone || '',
+      operatingHours: settings.operatingHours || '',
+      currency: settings.currency || 'IDR',
+      timezone: settings.timezone || 'Asia/Jakarta',
+    });
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
-      await api.patch('/settings', formData);
-      alert('Settings saved successfully');
-    } catch (error) {
+      await updateSettings('/settings', 'PATCH', formData);
+      toast.success('Settings saved successfully');
+    } catch (error: any) {
       console.error('Failed to save settings:', error);
-      alert('Failed to save settings');
     } finally {
       setSaving(false);
     }

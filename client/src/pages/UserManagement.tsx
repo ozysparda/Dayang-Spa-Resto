@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Plus, Search, UserX } from 'lucide-react';
-import api from '../services/api';
+import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
+import toast from 'react-hot-toast';
 
 interface User {
   id: string;
@@ -11,51 +12,43 @@ interface User {
 }
 
 export default function UserManagement() {
-  const [users, setUsers] = useState<User[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: usersData, loading, refetch } = useAsyncData<User[]>('/users');
+  const createUser = useAsyncMutation();
+  const deactivateUser = useAsyncMutation();
+
+  const users = usersData || [];
+
   const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-
   const [formData, setFormData] = useState({
     username: '',
     password: '',
     role: 'STAFF',
   });
 
-  useEffect(() => {
-    fetchUsers();
-  }, []);
-
-  const fetchUsers = async () => {
-    try {
-      const res = await api.get('/users');
-      setUsers(res.data);
-    } catch (error) {
-      console.error('Failed to fetch users:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.post('/users', formData);
+      await createUser('/users', 'POST', formData);
       setShowModal(false);
-      fetchUsers();
+      refetch();
       resetForm();
-    } catch (error) {
+      toast.success('User created successfully');
+    } catch (error: any) {
       console.error('Failed to create user:', error);
+      toast.error('Failed to create user');
     }
   };
 
   const handleDeactivate = async (id: string) => {
     if (!confirm('Are you sure you want to deactivate this user?')) return;
     try {
-      await api.delete(`/users/${id}`);
-      fetchUsers();
-    } catch (error) {
+      await deactivateUser(`/users/${id}`, 'DELETE');
+      refetch();
+      toast.success('User deactivated successfully');
+    } catch (error: any) {
       console.error('Failed to deactivate user:', error);
+      toast.error('Failed to deactivate user');
     }
   };
 

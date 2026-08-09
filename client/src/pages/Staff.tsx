@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Plus, Search, UserX } from 'lucide-react';
-import api from '../services/api';
+import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
+import toast from 'react-hot-toast';
 
 interface Staff {
   id: string;
@@ -15,11 +16,15 @@ interface Staff {
 }
 
 export default function Staff() {
-  const [staff, setStaff] = useState<Staff[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: staffData, loading, refetch } = useAsyncData<Staff[]>('/staff');
+  const createStaff = useAsyncMutation();
+  const updateStatus = useAsyncMutation();
+  const deactivateStaff = useAsyncMutation();
+
+  const staff = staffData || [];
+
   const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -29,49 +34,40 @@ export default function Staff() {
     role: 'STAFF',
   });
 
-  useEffect(() => {
-    fetchStaff();
-  }, []);
-
-  const fetchStaff = async () => {
-    try {
-      const res = await api.get('/staff');
-      setStaff(res.data);
-    } catch (error) {
-      console.error('Failed to fetch staff:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.post('/staff', formData);
+      await createStaff('/staff', 'POST', formData);
       setShowModal(false);
-      fetchStaff();
+      refetch();
       resetForm();
-    } catch (error) {
+      toast.success('Staff added successfully');
+    } catch (error: any) {
       console.error('Failed to create staff:', error);
+      toast.error('Failed to create staff');
     }
   };
 
   const handleStatusChange = async (staffId: string, newStatus: string) => {
     try {
-      await api.patch(`/staff/${staffId}/status`, { status: newStatus });
-      fetchStaff();
-    } catch (error) {
+      await updateStatus(`/staff/${staffId}/status`, 'PATCH', { status: newStatus });
+      refetch();
+      toast.success('Status updated');
+    } catch (error: any) {
       console.error('Failed to update status:', error);
+      toast.error('Failed to update status');
     }
   };
 
   const handleDeactivate = async (staffId: string) => {
     if (!confirm('Are you sure you want to deactivate this staff member?')) return;
     try {
-      await api.delete(`/staff/${staffId}`);
-      fetchStaff();
-    } catch (error) {
+      await deactivateStaff(`/staff/${staffId}`, 'DELETE');
+      refetch();
+      toast.success('Staff deactivated');
+    } catch (error: any) {
       console.error('Failed to deactivate staff:', error);
+      toast.error('Failed to deactivate staff');
     }
   };
 

@@ -1,5 +1,6 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
+import { toast } from 'react-hot-toast';
 import { 
   LayoutDashboard, 
   Calendar, 
@@ -47,7 +48,8 @@ export default function Layout() {
 
   const handleLogout = () => {
     logout();
-    navigate('/login');
+    toast.success('Logged out successfully');
+    navigate('/login', { replace: true });
   };
 
   const getLinks = () => {

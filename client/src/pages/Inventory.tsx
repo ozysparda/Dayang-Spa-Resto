@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Plus, Search, Upload } from 'lucide-react';
-import api from '../services/api';
+import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
+import toast from 'react-hot-toast';
 
 interface InventoryItem {
   id: string;
@@ -14,15 +15,18 @@ interface InventoryItem {
 }
 
 export default function Inventory() {
-  const [items, setItems] = useState<InventoryItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: itemsData, loading, refetch } = useAsyncData<InventoryItem[]>('/inventory');
+  const createItem = useAsyncMutation();
+  const importCsv = useAsyncMutation();
+
+  const items = itemsData || [];
+
   const [showModal, setShowModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [csvData, setCsvData] = useState('');
   const [fileName, setFileName] = useState('');
   const [importing, setImporting] = useState(false);
-
   const [formData, setFormData] = useState({
     sku: '',
     productName: '',
@@ -33,30 +37,17 @@ export default function Inventory() {
     sellingPrice: 0,
   });
 
-  useEffect(() => {
-    fetchInventory();
-  }, []);
-
-  const fetchInventory = async () => {
-    try {
-      const res = await api.get('/inventory');
-      setItems(res.data);
-    } catch (error) {
-      console.error('Failed to fetch inventory:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.post('/inventory', formData);
+      await createItem('/inventory', 'POST', formData);
       setShowModal(false);
-      fetchInventory();
+      refetch();
       resetForm();
-    } catch (error) {
+      toast.success('Inventory item added');
+    } catch (error: any) {
       console.error('Failed to create inventory item:', error);
+      toast.error('Failed to create inventory item');
     }
   };
 
@@ -66,13 +57,15 @@ export default function Inventory() {
 
     setImporting(true);
     try {
-      await api.post('/inventory/import', { csvData, fileName });
+      await importCsv('/inventory/import', 'POST', { csvData, fileName });
       setShowImportModal(false);
       setCsvData('');
       setFileName('');
-      fetchInventory();
-    } catch (error) {
+      refetch();
+      toast.success('Inventory imported successfully');
+    } catch (error: any) {
       console.error('Failed to import inventory:', error);
+      toast.error('Failed to import inventory');
     } finally {
       setImporting(false);
     }

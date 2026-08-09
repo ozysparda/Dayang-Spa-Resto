@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { connectDB } from './db/index.js';
 import authRoutes from './routes/auth.js';
@@ -23,7 +24,12 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const __dirname = path.dirname(new URL(import.meta.url).pathname);
+// Use fileURLToPath so __dirname is a correct absolute path on ALL
+// platforms. `new URL(import.meta.url).pathname` produces "/C:/..." on
+// Windows, which breaks express.static & res.sendFile ("path must be
+// absolute") and prevents the app from loading.
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Middleware
 app.use(helmet());
