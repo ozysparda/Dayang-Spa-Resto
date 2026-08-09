@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+import path from 'path';
 import dotenv from 'dotenv';
 import { connectDB } from './db/index.js';
 import authRoutes from './routes/auth.js';
@@ -22,6 +23,7 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const __dirname = path.dirname(new URL(import.meta.url).pathname);
 
 // Middleware
 app.use(helmet());
@@ -61,8 +63,16 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   });
 });
 
-// 404 handler
-app.use('*', (req, res) => {
+// Serve static files from client dist
+app.use(express.static(path.join(__dirname, '../../client/dist')));
+
+// Serve index.html for all other routes (SPA fallback)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../../client/dist/index.html'));
+});
+
+// 404 handler for API routes
+app.use('/api/*', (req, res) => {
   res.status(404).json({ message: 'Route not found' });
 });
 

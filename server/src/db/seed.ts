@@ -1,7 +1,10 @@
+import dotenv from 'dotenv';
 import { db } from '../db/index.js';
 import { users, staffProfiles, outlets, treatments, staffStatus, activityLogs } from '../db/schema.js';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
+
+dotenv.config();
 
 async function seed() {
   console.log('Seeding database...');
