@@ -2,17 +2,10 @@
   "version": 2,
   "builds": [
     {
-      "src": "server/package.json",
-      "use": "@vercel/node",
-      "config": {
-        "buildCommand": "npm run build"
-      }
-    },
-    {
-      "src": "client/package.json",
+      "src": "package.json",
       "use": "@vercel/static-build",
       "config": {
-        "distDir": "dist"
+        "buildCommand": "cd server && npm run build && cd ../client && npm run build"
       }
     }
   ],
