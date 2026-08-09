@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Send, MessageSquare } from 'lucide-react';
-import api from '../services/api';
+import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
+import toast from 'react-hot-toast';
+import { api } from '../services/api';
 
 interface Conversation {
   id: string;
@@ -30,25 +32,19 @@ interface Message {
 }
 
 export default function Chat() {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const { data: conversationsData, loading, refetch } = useAsyncData<Conversation[]>('/chat/conversations');
+  const { data: staffData } = useAsyncData<any[]>('/staff');
+  const sendMessage = useAsyncMutation();
+  const createConversation = useAsyncMutation();
+
+  const conversations = conversationsData || [];
+  const staff = staffData || [];
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [newMessage, setNewMessage] = useState('');
-  const [loading, setLoading] = useState(true);
   const [showNewConversation, setShowNewConversation] = useState(false);
-  const [staff, setStaff] = useState<any[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    fetchConversations();
-    fetchStaff();
-  }, []);
-
-  useEffect(() => {
-    if (selectedConversation) {
-      fetchMessages(selectedConversation.id);
-    }
-  }, [selectedConversation]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -58,47 +54,55 @@ export default function Chat() {
     scrollToBottom();
   }, [messages]);
 
-  const fetchConversations = async () => {
-    try {
-      const res = await api.get('/chat/conversations');
-      setConversations(res.data);
-    } catch (error) {
-      console.error('Failed to fetch conversations:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    if (!selectedConversation) return;
 
-  const fetchMessages = async (conversationId: string) => {
-    try {
-      const res = await api.get(`/chat/conversations/${conversationId}/messages`);
-      setMessages(res.data);
-    } catch (error) {
-      console.error('Failed to fetch messages:', error);
-    }
-  };
+    let controller: AbortController | null = null;
+    let cancelled = false;
 
-  const fetchStaff = async () => {
-    try {
-      const res = await api.get('/staff');
-      setStaff(res.data);
-    } catch (error) {
-      console.error('Failed to fetch staff:', error);
-    }
-  };
+    const fetchMessages = async () => {
+      controller = new AbortController();
+      try {
+        const res = await api.get(`/chat/conversations/${selectedConversation.id}/messages`, {
+          signal: controller.signal,
+        });
+        if (!cancelled && !controller.signal.aborted) {
+          setMessages(res.data);
+        }
+      } catch (error: any) {
+        if (!cancelled && !controller.signal.aborted) {
+          console.error('Failed to fetch messages:', error);
+          toast.error('Failed to load messages');
+        }
+      }
+    };
+
+    fetchMessages();
+
+    return () => {
+      cancelled = true;
+      controller?.abort();
+    };
+  }, [selectedConversation?.id]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim() || !selectedConversation) return;
 
     try {
-      await api.post(`/chat/conversations/${selectedConversation.id}/messages`, {
-        content: newMessage,
-      });
+      await sendMessage(
+        `/chat/conversations/${selectedConversation.id}/messages`,
+        'POST',
+        { content: newMessage }
+      );
       setNewMessage('');
-      fetchMessages(selectedConversation.id);
+      if (selectedConversation) {
+        api.get(`/chat/conversations/${selectedConversation.id}/messages`).then(res => {
+          setMessages(res.data);
+        }).catch(() => {});
+      }
     } catch (error) {
-      console.error('Failed to send message:', error);
+      // Error handled by useAsyncMutation
     }
   };
 
@@ -111,17 +115,23 @@ export default function Chat() {
     if (participantIds.length === 0) return;
 
     try {
-      const res = await api.post('/chat/conversations', {
-        name: '',
-        isGroup: false,
-        participantIds,
-      });
+      const response = await createConversation(
+        '/chat/conversations',
+        'POST',
+        {
+          name: '',
+          isGroup: false,
+          participantIds,
+        }
+      );
       setShowNewConversation(false);
-      fetchConversations();
-      const newConv = res.data;
-      setSelectedConversation(newConv);
+      refetch();
+      if (response) {
+        setSelectedConversation(response as Conversation);
+        toast.success('Conversation started');
+      }
     } catch (error) {
-      console.error('Failed to create conversation:', error);
+      // Error handled by useAsyncMutation
     }
   };
 
