@@ -1,10 +1,23 @@
 import { Router } from 'express';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { db } from '../db/index.js';
-import { bookings, staffStatus, treatments, staffProfiles, outlets, users, notifications, activityLogs } from '../db/schema.js';
+import { bookings, staffStatus, treatments, staffProfiles, outlets, users, notifications, activityLogs, staffStatusHistory } from '../db/schema.js';
 import { eq, and, gte, lt, lte, desc, sql, or } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
-import { dispatchPushToUser } from '../push.js';
+import { dispatchPushToUser } from '../routes/push.js';
+
+// Utility: add minutes to a Date/string timestamp, correctly handling day boundaries.
+function addMinutes(startTime: string | Date, minutes: number): Date {
+  const d = new Date(startTime);
+  d.setMinutes(d.getMinutes() + minutes);
+  return d;
+}
+
+// Utility: round a Date to the nearest minute (drop seconds/ms).
+function toMinutePrecision(date: Date): Date {
+  date.setSeconds(0, 0);
+  return date;
+}
 
 const router = Router();
 
@@ -208,10 +221,11 @@ router.post('/', async (req: any, res) => {
       price,
       commission,
       notes,
+      duration,
     } = req.body;
 
     // Validate required fields
-    if (!customerName || !treatmentId || !therapistId || !date || !startTime || !endTime) {
+    if (!customerName || !treatmentId || !therapistId || !date || !startTime) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
 
@@ -222,15 +236,25 @@ router.post('/', async (req: any, res) => {
     }
 
     // Parse dates
-    const startDateTime = new Date(startTime);
-    const endDateTime = new Date(endTime);
+    const startDateTime = toMinutePrecision(new Date(startTime));
     const bookingDate = new Date(date);
+    bookingDate.setHours(0, 0, 0, 0);
 
-    // Calculate duration
-    const duration = Math.round((endDateTime.getTime() - startDateTime.getTime()) / (1000 * 60));
+    // Use provided duration, otherwise derive from treatment
+    const treatmentDuration = typeof duration === 'number' ? duration : treatment[0].duration;
+    const expectedEndTime = addMinutes(startDateTime, treatmentDuration);
 
-    if (duration <= 0) {
-      return res.status(400).json({ message: 'Invalid time range' });
+    // If client provided endTime, validate it matches the calculated time (±1 min tolerance)
+    if (endTime) {
+      const clientEnd = toMinutePrecision(new Date(endTime));
+      const diffMs = Math.abs(clientEnd.getTime() - expectedEndTime.getTime());
+      const diffMin = diffMs / (1000 * 60);
+      if (diffMin > 1) {
+        return res.status(400).json({
+          message: `End time does not match treatment duration. Expected ${expectedEndTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} for ${treatmentDuration} minutes from ${startDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+          expectedEndTime: expectedEndTime.toISOString(),
+        });
+      }
     }
 
     // Check for booking conflicts
@@ -243,15 +267,15 @@ router.post('/', async (req: any, res) => {
         or(
           and(
             gte(bookings.startTime, startDateTime),
-            lt(bookings.startTime, endDateTime)
+            lt(bookings.startTime, expectedEndTime)
           ),
           and(
             gte(bookings.endTime, startDateTime),
-            lt(bookings.endTime, endDateTime)
+            lt(bookings.endTime, expectedEndTime)
           ),
           and(
             lte(bookings.startTime, startDateTime),
-            gte(bookings.endTime, endDateTime)
+            gte(bookings.endTime, expectedEndTime)
           )
         )
       ))
@@ -277,8 +301,8 @@ router.post('/', async (req: any, res) => {
       outletId: userOutletId,
       date: bookingDate,
       startTime: startDateTime,
-      endTime: endDateTime,
-      duration,
+      endTime: expectedEndTime,
+      duration: treatmentDuration,
       treatmentId,
       therapistId,
       room,
@@ -289,6 +313,31 @@ router.post('/', async (req: any, res) => {
       createdBy: req.user.id,
     }).returning();
 
+    // Update therapist status to IN_TREATMENT
+    const existingStatus = await db.select().from(staffStatus).where(eq(staffStatus.staffId, therapistId)).limit(1);
+    if (existingStatus.length > 0) {
+      await db.update(staffStatus)
+        .set({ status: 'IN_TREATMENT', updatedAt: new Date() })
+        .where(eq(staffStatus.id, existingStatus[0].id));
+    } else {
+      await db.insert(staffStatus).values({
+        id: uuidv4(),
+        staffId: therapistId,
+        status: 'IN_TREATMENT',
+        outletId: userOutletId,
+      });
+    }
+
+    // Create status history
+    await db.insert(staffStatusHistory).values({
+      id: uuidv4(),
+      staffId: therapistId,
+      oldStatus: existingStatus.length > 0 ? existingStatus[0].status : null,
+      newStatus: 'IN_TREATMENT',
+      changedBy: req.user.id,
+      outletId: userOutletId,
+    });
+
     // Get therapist and outlet info for notification
     const therapist = await db.select().from(staffProfiles).where(eq(staffProfiles.id, therapistId)).limit(1);
     const outlet = await db.select().from(outlets).where(eq(outlets.id, userOutletId)).limit(1);
@@ -297,7 +346,7 @@ router.post('/', async (req: any, res) => {
     if (therapist.length > 0) {
       const therapistUser = await db.select().from(users).where(eq(users.id, therapist[0].userId)).limit(1);
       const title = 'New Booking — Dayang Spa Resto';
-      const message = `${treatment[0].name} • ${startDateTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}–${endDateTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} • ${outlet[0]?.name || ''}`;
+      const message = `${treatment[0].name} • ${startDateTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}–${expectedEndTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} • ${outlet[0]?.name || ''}`;
 
       if (therapistUser.length > 0) {
         await db.insert(notifications).values({
@@ -336,7 +385,8 @@ router.post('/', async (req: any, res) => {
         therapistName: therapist[0]?.name,
         treatmentName: treatment[0].name,
         startTime: startDateTime,
-        endTime: endDateTime,
+        endTime: expectedEndTime,
+        duration: treatmentDuration,
       },
       outletId: userOutletId,
     });
@@ -371,8 +421,20 @@ router.patch('/:id', async (req: any, res) => {
     // If therapist or time is being changed, check for conflicts
     if (updates.therapistId || updates.startTime || updates.endTime) {
       const therapistId = updates.therapistId || existingBooking[0].therapistId;
-      const startTime = updates.startTime ? new Date(updates.startTime) : existingBooking[0].startTime;
-      const endTime = updates.endTime ? new Date(updates.endTime) : existingBooking[0].endTime;
+      const startTime = updates.startTime ? toMinutePrecision(new Date(updates.startTime)) : existingBooking[0].startTime;
+      
+      // If treatment duration changed or start time changed, recalculate end time
+      let endTime = updates.endTime ? toMinutePrecision(new Date(updates.endTime)) : existingBooking[0].endTime;
+      if (updates.duration || updates.startTime || updates.treatmentId) {
+        const treatmentId = updates.treatmentId || existingBooking[0].treatmentId;
+        const treatment = await db.select().from(treatments).where(eq(treatments.id, treatmentId)).limit(1);
+        if (treatment.length) {
+          const dur = typeof updates.duration === 'number' ? updates.duration : treatment[0].duration;
+          endTime = addMinutes(startTime, dur);
+          updates.duration = dur;
+          updates.endTime = endTime.toISOString();
+        }
+      }
 
       const conflictingBooking = await db.select()
         .from(bookings)
@@ -411,6 +473,37 @@ router.patch('/:id', async (req: any, res) => {
       .set({ ...updates, updatedAt: new Date() })
       .where(eq(bookings.id, id))
       .returning();
+
+    // Update staff status based on booking status
+    if (updates.status === 'COMPLETED' || updates.status === 'CANCELLED') {
+      const therapistId = existingBooking[0].therapistId;
+      const otherActiveBookings = await db.select({ count: sql<number>`count(*)` })
+        .from(bookings)
+        .where(and(
+          eq(bookings.therapistId, therapistId),
+          eq(bookings.outletId, userOutletId),
+          sql`${bookings.status} != 'CANCELLED'`
+        ));
+
+      if (Number(otherActiveBookings[0]?.count || 0) === 0) {
+        const currentStatus = await db.select().from(staffStatus).where(eq(staffStatus.staffId, therapistId)).limit(1);
+        if (currentStatus.length > 0 && currentStatus[0].status === 'IN_TREATMENT') {
+          const oldStatus = currentStatus[0].status;
+          await db.update(staffStatus)
+            .set({ status: 'FREE', updatedAt: new Date() })
+            .where(eq(staffStatus.id, currentStatus[0].id));
+          
+          await db.insert(staffStatusHistory).values({
+            id: uuidv4(),
+            staffId: therapistId,
+            oldStatus,
+            newStatus: 'FREE',
+            changedBy: req.user.id,
+            outletId: userOutletId,
+          });
+        }
+      }
+    }
 
     // Create activity log
     await db.insert(activityLogs).values({
@@ -459,6 +552,34 @@ router.delete('/:id', async (req: any, res) => {
       .where(eq(bookings.id, id))
       .returning();
 
+    // Reset therapist status to FREE if no other active bookings
+    const therapistId = existingBooking[0].therapistId;
+    const otherActiveBookings = await db.select({ count: sql<number>`count(*)` })
+      .from(bookings)
+      .where(and(
+        eq(bookings.therapistId, therapistId),
+        eq(bookings.outletId, userOutletId),
+        sql`${bookings.status} != 'CANCELLED'`
+      ));
+
+    if (Number(otherActiveBookings[0]?.count || 0) === 0) {
+      const currentStatus = await db.select().from(staffStatus).where(eq(staffStatus.staffId, therapistId)).limit(1);
+      if (currentStatus.length > 0) {
+        await db.update(staffStatus)
+          .set({ status: 'FREE', updatedAt: new Date() })
+          .where(eq(staffStatus.id, currentStatus[0].id));
+        
+        await db.insert(staffStatusHistory).values({
+          id: uuidv4(),
+          staffId: therapistId,
+          oldStatus: currentStatus[0].status,
+          newStatus: 'FREE',
+          changedBy: req.user.id,
+          outletId: userOutletId,
+        });
+      }
+    }
+
     // Create activity log
     await db.insert(activityLogs).values({
       id: uuidv4(),
@@ -470,6 +591,7 @@ router.delete('/:id', async (req: any, res) => {
       details: {
         bookingId: existingBooking[0].bookingId,
         customerName: existingBooking[0].customerName,
+        therapistId,
       },
       outletId: userOutletId,
     });
@@ -491,8 +613,8 @@ router.get('/available-therapists', async (req: any, res) => {
       return res.status(400).json({ message: 'startTime and endTime are required' });
     }
 
-    const startDateTime = new Date(startTime as string);
-    const endDateTime = new Date(endTime as string);
+    const startDateTime = toMinutePrecision(new Date(startTime as string));
+    const endDateTime = toMinutePrecision(new Date(endTime as string));
 
     // Get all active staff in the outlet
     const allStaff = await db.select({

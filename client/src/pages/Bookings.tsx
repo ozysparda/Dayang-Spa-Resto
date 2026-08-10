@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, Search, Filter } from 'lucide-react';
 import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
 import toast from 'react-hot-toast';
@@ -47,6 +47,7 @@ export default function Bookings() {
   const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     customerName: '',
     treatmentId: '',
@@ -55,13 +56,76 @@ export default function Bookings() {
     date: '',
     startTime: '',
     endTime: '',
+    duration: 0,
     price: 0,
     commission: 0,
     notes: '',
   });
 
+  // Auto-calculate end time when treatment or start time changes
+  useEffect(() => {
+    if (formData.treatmentId && formData.startTime && formData.date) {
+      const treatment = treatments.find(t => t.id === formData.treatmentId);
+      if (treatment) {
+        const [hours, minutes] = formData.startTime.split(':').map(Number);
+        const startDate = new Date(`${formData.date}T${formData.startTime}`);
+        startDate.setHours(hours, minutes, 0, 0);
+        
+        const endDate = new Date(startDate);
+        endDate.setMinutes(endDate.getMinutes() + treatment.duration);
+        
+        const endHours = endDate.getHours().toString().padStart(2, '0');
+        const endMinutes = endDate.getMinutes().toString().padStart(2, '0');
+        const endTime = `${endHours}:${endMinutes}`;
+        
+        setFormData(prev => ({
+          ...prev,
+          duration: treatment.duration,
+          endTime,
+          price: treatment.price,
+          commission: treatment.defaultCommission,
+        }));
+      }
+    }
+  }, [formData.treatmentId, formData.startTime, formData.date, treatments]);
+
+  // Check therapist availability whenever time or therapist changes
+  useEffect(() => {
+    if (formData.staffId && formData.startTime && formData.endTime && formData.date) {
+      const checkAvailability = async () => {
+        try {
+          const startDateTime = `${formData.date}T${formData.startTime}`;
+          const endDateTime = `${formData.date}T${formData.endTime}`;
+          const response = await fetch(`/api/bookings/available-therapists?startTime=${encodeURIComponent(startDateTime)}&endTime=${encodeURIComponent(endDateTime)}`);
+          const data = await response.json();
+          
+          if (response.ok) {
+            const isAvailable = data.some((t: Staff) => t.id === formData.staffId);
+            if (!isAvailable && formData.staffId) {
+              setAvailabilityError('This therapist has a conflicting booking during the selected time');
+            } else {
+              setAvailabilityError(null);
+            }
+          }
+        } catch (error) {
+          console.error('Availability check failed:', error);
+        }
+      };
+      
+      checkAvailability();
+    } else {
+      setAvailabilityError(null);
+    }
+  }, [formData.staffId, formData.startTime, formData.endTime, formData.date]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (availabilityError) {
+      toast.error('Please resolve the scheduling conflict before creating the booking');
+      return;
+    }
+    
     try {
       // Server expects therapistId (not staffId) for the therapist field
       const payload = {
@@ -75,6 +139,7 @@ export default function Bookings() {
         price: formData.price,
         commission: formData.commission,
         notes: formData.notes,
+        duration: formData.duration,
       };
       await createBooking('/bookings', 'POST', payload);
       setShowModal(false);
@@ -83,7 +148,8 @@ export default function Bookings() {
       toast.success('Booking created successfully');
     } catch (error: any) {
       console.error('Failed to create booking:', error);
-      toast.error('Failed to create booking');
+      const message = error.response?.data?.message || 'Failed to create booking';
+      toast.error(message);
     }
   };
 
@@ -96,10 +162,12 @@ export default function Bookings() {
       date: '',
       startTime: '',
       endTime: '',
+      duration: 0,
       price: 0,
       commission: 0,
       notes: '',
     });
+    setAvailabilityError(null);
   };
 
   const getStatusColor = (status: string) => {
@@ -286,13 +354,57 @@ export default function Bookings() {
                   required
                   value={formData.staffId}
                   onChange={(e) => setFormData({ ...formData, staffId: e.target.value })}
-                  className="input-field"
+                  className={`input-field ${availabilityError ? 'border-red-500' : ''}`}
                 >
                   <option value="">Select therapist</option>
-                  {staff.filter(s => s.status === 'FREE').map((s) => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
+                  {staff.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.status})
+                    </option>
                   ))}
                 </select>
+                {formData.staffId && formData.startTime && formData.endTime && (
+                  <div className="mt-2">
+                    {availabilityError ? (
+                      <p className="text-sm text-red-600 flex items-center gap-1">
+                        <span className="w-2 h-2 bg-red-500 rounded-full"></span>
+                        {availabilityError}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-green-600 flex items-center gap-1">
+                        <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                        Available for selected time slot
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Duration (minutes)
+                </label>
+                <input
+                  type="number"
+                  readOnly
+                  value={formData.duration || ''}
+                  className="input-field bg-gray-100"
+                  placeholder="Auto-calculated from treatment"
+                />
+                <p className="text-xs text-gray-500 mt-1">Auto-calculated from selected treatment</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  End Time
+                </label>
+                <input
+                  type="time"
+                  readOnly
+                  value={formData.endTime}
+                  className="input-field bg-gray-100"
+                />
+                <p className="text-xs text-gray-500 mt-1">Auto-calculated based on start time + duration</p>
               </div>
 
               <div>
@@ -304,46 +416,6 @@ export default function Bookings() {
                   required
                   value={formData.room}
                   onChange={(e) => setFormData({ ...formData, room: e.target.value })}
-                  className="input-field"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Date
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={formData.date}
-                    onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                    className="input-field"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Start Time
-                  </label>
-                  <input
-                    type="time"
-                    required
-                    value={formData.startTime}
-                    onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
-                    className="input-field"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  End Time
-                </label>
-                <input
-                  type="time"
-                  required
-                  value={formData.endTime}
-                  onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
                   className="input-field"
                 />
               </div>

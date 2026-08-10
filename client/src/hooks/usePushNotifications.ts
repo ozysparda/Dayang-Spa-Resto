@@ -75,7 +75,8 @@ export function usePushNotifications() {
 
   const unsubscribe = async () => {
     try {
-      const sub = await navigator.serviceWorker.getNotificationSubscription();
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
       if (sub) {
         const endpoint = sub.endpoint;
         await sub.unsubscribe();
