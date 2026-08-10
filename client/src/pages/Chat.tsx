@@ -32,36 +32,63 @@ interface Message {
 }
 
 export default function Chat() {
-  const { data: conversationsData, loading, refetch } = useAsyncData<Conversation[]>('/chat/conversations');
-  const { data: staffData } = useAsyncData<any[]>('/staff');
+    const { data: conversationsData, loading, refetch } = useAsyncData<Conversation[]>('/chat/conversations');
   const sendMessage = useAsyncMutation();
   const createConversation = useAsyncMutation();
 
   const conversations = conversationsData || [];
-  const staff = staffData || [];
-
+  const [staff, setStaff] = useState<any[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [newMessage, setNewMessage] = useState('');
   const [showNewConversation, setShowNewConversation] = useState(false);
+  const [messagesLoading, setMessagesLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Ref to the latest fetchMessages so we can trigger an immediate refresh
+  // after sending a message without an uncancellable .then() that could
+  // resolve after the user navigates away / goes back.
+  const fetchMessagesRef = useRef<() => void>(() => {});
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  // /staff is ADMIN/DEVELOPER-only, so non-admin staff would otherwise get a
+  // 403 toast every time they open or navigate back into Chat. Swallow that
+  // (and cancellation) error silently; only log unexpected failures.
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    const controller = new AbortController();
+    api
+      .get('/staff', { signal: controller.signal })
+      .then((res) => {
+        if (!controller.signal.aborted) setStaff(res.data);
+      })
+      .catch((err: any) => {
+        const cancelled =
+          err?.name === 'CanceledError' ||
+          err?.name === 'AbortError' ||
+          err?.code === 'ERR_CANCELED';
+        if (!cancelled) {
+          console.warn('Staff roster fetch failed:', err?.response?.data?.message || err.message);
+        }
+      });
+    return () => controller.abort();
+  }, []);
 
-  useEffect(() => {
-    if (!selectedConversation) return;
+    useEffect(() => {
+    if (!selectedConversation) {
+      setMessages([]);
+      return;
+    }
 
     let controller: AbortController | null = null;
     let cancelled = false;
 
     const fetchMessages = async () => {
+      if (cancelled) return;
       controller = new AbortController();
+      setMessagesLoading(true);
       try {
         const res = await api.get(`/chat/conversations/${selectedConversation.id}/messages`, {
           signal: controller.signal,
@@ -70,17 +97,29 @@ export default function Chat() {
           setMessages(res.data);
         }
       } catch (error: any) {
-        if (!cancelled && !controller.signal.aborted) {
+        const cancelled2 =
+          error?.name === 'CanceledError' ||
+          error?.name === 'AbortError' ||
+          error?.code === 'ERR_CANCELED';
+        if (!cancelled2 && !cancelled) {
           console.error('Failed to fetch messages:', error);
-          toast.error('Failed to load messages');
         }
+      } finally {
+        if (!cancelled) setMessagesLoading(false);
       }
     };
 
+    fetchMessagesRef.current = fetchMessages;
     fetchMessages();
+    scrollToBottom();
+    // Live polling: pull in new messages every 5 seconds. The interval and
+    // every request are torn down in the cleanup, so back/exit navigation
+    // can never fire a setState on an unmounted component.
+    const poll = setInterval(fetchMessages, 5000);
 
     return () => {
       cancelled = true;
+      clearInterval(poll);
       controller?.abort();
     };
   }, [selectedConversation?.id]);
@@ -96,11 +135,10 @@ export default function Chat() {
         { content: newMessage }
       );
       setNewMessage('');
-      if (selectedConversation) {
-        api.get(`/chat/conversations/${selectedConversation.id}/messages`).then(res => {
-          setMessages(res.data);
-        }).catch(() => {});
-      }
+      // Immediate, cancellation-safe refresh. The closure is guarded by the
+      // mounted/signal checks inside fetchMessages, so navigating away right
+      // after sending can never produce a stray setState.
+      fetchMessagesRef.current();
     } catch (error) {
       // Error handled by useAsyncMutation
     }
@@ -178,8 +216,8 @@ export default function Chat() {
                 >
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
-                      <h3 className="font-medium text-gray-900">
-                        {conv.name || conv.participants.map(p => p.name).join(', ')}
+                                            <h3 className="font-medium text-gray-900">
+                        {conv.name || conv.participants?.map(p => p.name).join(', ')}
                       </h3>
                       {conv.lastMessage && (
                         <p className="text-sm text-gray-500 mt-1 truncate">
@@ -204,22 +242,24 @@ export default function Chat() {
           {selectedConversation ? (
             <>
               <div className="p-4 border-b">
-                <h2 className="text-lg font-semibold">
-                  {selectedConversation.name || selectedConversation.participants.map(p => p.name).join(', ')}
+                                <h2 className="text-lg font-semibold">
+                  {selectedConversation.name || selectedConversation.participants?.map(p => p.name).join(', ')}
                 </h2>
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                {messages.length === 0 ? (
+                {messagesLoading ? (
+                  <div className="text-center text-gray-500 py-8">Loading messages…</div>
+                ) : messages.length === 0 ? (
                   <div className="text-center text-gray-500 py-8">No messages yet</div>
                 ) : (
                   messages.map((message) => (
                     <div
                       key={message.id}
-                      className={`flex ${message.senderId === selectedConversation.participants[0]?.userId ? 'justify-start' : 'justify-end'}`}
+                      className={`flex ${message.senderId === selectedConversation.participants?.[0]?.userId ? 'justify-start' : 'justify-end'}`}
                     >
                       <div
                         className={`max-w-[70%] rounded-lg p-3 ${
-                          message.senderId === selectedConversation.participants[0]?.userId
+                          message.senderId === selectedConversation.participants?.[0]?.userId
                             ? 'bg-gray-100'
                             : 'bg-blue-600 text-white'
                         }`}
@@ -227,7 +267,7 @@ export default function Chat() {
                         <p className="text-sm">{message.content}</p>
                         <p
                           className={`text-xs mt-1 ${
-                            message.senderId === selectedConversation.participants[0]?.userId
+                            message.senderId === selectedConversation.participants?.[0]?.userId
                               ? 'text-gray-500'
                               : 'text-blue-100'
                           }`}
@@ -275,11 +315,11 @@ export default function Chat() {
                 </label>
                 <div className="space-y-2 max-h-60 overflow-y-auto">
                   {staff.map((person) => (
-                    <div key={person.id} className="flex items-center">
+                                        <div key={person.id} className="flex items-center">
                       <input
                         type="checkbox"
                         name="participants"
-                        value={person.id}
+                        value={person.userId || person.id}
                         id={`participant-${person.id}`}
                         className="mr-2"
                       />

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth.js';
 import { db } from '../db/index.js';
-import { bookings, staffProfiles, staffStatus, activityLogs, users, treatments } from '../db/schema.js';
+import { bookings, staffProfiles, staffStatus, activityLogs, treatments, outlets } from '../db/schema.js';
 import { eq, desc, and, gte, lt, sql } from 'drizzle-orm';
 
 const router = Router();
@@ -93,10 +93,11 @@ router.get('/staff-status', async (req: any, res) => {
       id: staffProfiles.id,
       name: staffProfiles.name,
       status: staffStatus.status,
-      outletName: sql`'${userOutletId}'`,
+      outletName: outlets.name,
     })
       .from(staffProfiles)
       .leftJoin(staffStatus, eq(staffProfiles.id, staffStatus.staffId))
+      .leftJoin(outlets, eq(staffProfiles.outletId, outlets.id))
       .where(eq(staffProfiles.outletId, userOutletId))
       .orderBy(staffProfiles.name);
 

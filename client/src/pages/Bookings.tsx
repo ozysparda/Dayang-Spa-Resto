@@ -63,7 +63,20 @@ export default function Bookings() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await createBooking('/bookings', 'POST', formData);
+      // Server expects therapistId (not staffId) for the therapist field
+      const payload = {
+        customerName: formData.customerName,
+        treatmentId: formData.treatmentId,
+        therapistId: formData.staffId,
+        room: formData.room,
+        date: formData.date,
+        startTime: `${formData.date}T${formData.startTime}`,
+        endTime: `${formData.date}T${formData.endTime}`,
+        price: formData.price,
+        commission: formData.commission,
+        notes: formData.notes,
+      };
+      await createBooking('/bookings', 'POST', payload);
       setShowModal(false);
       refetch();
       resetForm();

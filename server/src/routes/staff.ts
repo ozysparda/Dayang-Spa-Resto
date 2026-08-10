@@ -4,6 +4,7 @@ import { db } from '../db/index.js';
 import { staffProfiles, staffStatus, staffStatusHistory, users, outlets, activityLogs, notifications } from '../db/schema.js';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
+import bcrypt from 'bcryptjs';
 
 const router = Router();
 
@@ -102,7 +103,6 @@ router.post('/', async (req: any, res) => {
     }
 
     // Hash password
-    const bcrypt = await import('bcryptjs');
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Generate IDs
