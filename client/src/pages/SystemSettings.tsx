@@ -14,7 +14,7 @@ interface SystemSettings {
 }
 
 export default function SystemSettings() {
-  const { data: settingsData, loading, refetch } = useAsyncData<SystemSettings>('/settings');
+  const { data: settingsData, loading } = useAsyncData<SystemSettings>('/settings');
   const updateSettings = useAsyncMutation();
 
   const settings = settingsData;

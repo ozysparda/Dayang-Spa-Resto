@@ -19,17 +19,21 @@ export default function Attendance() {
   const clockInMutation = useAsyncMutation();
   const clockOutMutation = useAsyncMutation();
 
-  const [currentStatus] = useState<any>(null);
   const breakStartMutation = useAsyncMutation();
-
   const breakEndMutation = useAsyncMutation();
 
   const records = recordsData || [];
+
+  const [currentStatus, setCurrentStatus] = useState({
+    clockedIn: false,
+    onBreak: false,
+  });
 
   const handleClockIn = async () => {
     try {
       await clockInMutation('/attendance/clock-in', 'POST');
       refetch();
+      setCurrentStatus({ ...currentStatus, clockedIn: true });
       toast.success('Clocked in successfully');
     } catch (error: any) {
       console.error('Failed to clock in:', error);
@@ -41,6 +45,7 @@ export default function Attendance() {
     try {
       await clockOutMutation('/attendance/clock-out', 'POST');
       refetch();
+      setCurrentStatus({ ...currentStatus, clockedIn: false, onBreak: false });
       toast.success('Clocked out successfully');
     } catch (error: any) {
       console.error('Failed to clock out:', error);
@@ -52,6 +57,7 @@ export default function Attendance() {
     try {
       await breakStartMutation('/attendance/break-start', 'POST');
       refetch();
+      setCurrentStatus({ ...currentStatus, onBreak: true });
       toast.success('Break started');
     } catch (error: any) {
       console.error('Failed to start break:', error);
@@ -63,6 +69,7 @@ export default function Attendance() {
     try {
       await breakEndMutation('/attendance/break-end', 'POST');
       refetch();
+      setCurrentStatus({ ...currentStatus, onBreak: false });
       toast.success('Break ended');
     } catch (error: any) {
       console.error('Failed to end break:', error);

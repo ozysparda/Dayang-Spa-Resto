@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Plus, Bell, Check } from 'lucide-react';
-import api from '../services/api';
-import { useAsyncData } from '../hooks/useAsyncData';
+import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
 import { useAuthStore } from '../stores/authStore';
 import toast from 'react-hot-toast';
 
@@ -19,6 +18,8 @@ export default function Announcements() {
   const announcements = announcementsData || [];
   const { user } = useAuthStore();
   const isAdmin = ['ADMIN', 'DEVELOPER'].includes(user?.role || '');
+  const createAnnouncement = useAsyncMutation();
+  const markAsRead = useAsyncMutation();
 
   const [showModal, setShowModal] = useState(false);
 
@@ -34,7 +35,7 @@ export default function Announcements() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.post('/announcements', formData);
+      await createAnnouncement('/announcements', 'POST', formData);
       setShowModal(false);
       fetchAnnouncements();
       resetForm();
@@ -47,7 +48,7 @@ export default function Announcements() {
 
   const handleMarkAsRead = async (id: string) => {
     try {
-      await api.post(`/announcements/${id}/read`);
+      await markAsRead(`/announcements/${id}/read`, 'POST');
       fetchAnnouncements();
       toast.success('Marked as read');
     } catch (error: any) {

@@ -14,8 +14,6 @@ interface Outlet {
 export default function Outlets() {
   const { data: outletsData, loading, refetch } = useAsyncData<Outlet[]>('/outlets');
   const createOutlet = useAsyncMutation();
-  const updateOutlet = useAsyncMutation();
-  const deleteOutlet = useAsyncMutation();
 
   const outlets = outletsData || [];
 

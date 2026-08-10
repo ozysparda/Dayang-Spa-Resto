@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Search } from 'lucide-react';
+import { Plus, Search, Edit, Trash2 } from 'lucide-react';
 import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
 import toast from 'react-hot-toast';
 

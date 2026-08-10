@@ -15,7 +15,7 @@ interface UserProfile {
 }
 
 export default function Profile() {
-  const { data: profileData, loading, refetch } = useAsyncData<UserProfile>('/auth/me');
+  const { data: profileData, loading } = useAsyncData<UserProfile>('/auth/me');
   const changePassword = useAsyncMutation();
   const profile = profileData;
 
