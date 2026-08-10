@@ -21,7 +21,21 @@ export const api = axios.create({
  * a source of errors when navigating backward or exiting pages.
  */
 const AUTH_LOGOUT_EVENT = 'auth:logout';
+
+// Prevent multiple logout attempts in rapid succession (e.g. during
+// page navigation when several requests 401 at once).
+let logoutInProgress = false;
+
 export const triggerAuthLogout = (reason?: string) => {
+  if (logoutInProgress) return;
+  logoutInProgress = true;
+  
+  // Reset the flag after a short delay so that future legitimate logouts
+  // (e.g. user clicking "logout" button) still work.
+  setTimeout(() => {
+    logoutInProgress = false;
+  }, 2000);
+
   if (reason) toast.error(reason);
   window.dispatchEvent(new CustomEvent(AUTH_LOGOUT_EVENT));
 };

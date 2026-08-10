@@ -23,8 +23,16 @@ function Root() {
 
   React.useEffect(() => {
     const handleAuthLogout = () => {
-      // The store has already been cleared in the interceptor,
-      // we just need to navigate to /login without a hard page reload.
+      // Only navigate to login if we're not already there. This prevents
+      // navigation conflicts when the user presses back/exit during a
+      // 401-triggered logout.
+      const currentPath = window.location.pathname;
+      if (currentPath === '/login') {
+        return;
+      }
+      
+      // Use replace to avoid adding the logout navigation to browser history,
+      // which would cause the user to go back to a protected page after login.
       navigate('/login', { replace: true });
     };
 
