@@ -6,6 +6,12 @@ import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import './index.css';
 
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch((err) => {
+    console.warn('Service worker registration failed:', err);
+  });
+}
+
 /**
  * Inner component that registers the global auth-logout listener
  * and renders <App />.  Kept separate from App so we have access

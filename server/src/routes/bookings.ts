@@ -4,6 +4,7 @@ import { db } from '../db/index.js';
 import { bookings, staffStatus, treatments, staffProfiles, outlets, users, notifications, activityLogs } from '../db/schema.js';
 import { eq, and, gte, lt, lte, desc, sql, or } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
+import { dispatchPushToUser } from '../push.js';
 
 const router = Router();
 
@@ -292,18 +293,31 @@ router.post('/', async (req: any, res) => {
     const therapist = await db.select().from(staffProfiles).where(eq(staffProfiles.id, therapistId)).limit(1);
     const outlet = await db.select().from(outlets).where(eq(outlets.id, userOutletId)).limit(1);
 
-    // Create notification for therapist
+    // Create notification for therapist + dispatch browser push
     if (therapist.length > 0) {
       const therapistUser = await db.select().from(users).where(eq(users.id, therapist[0].userId)).limit(1);
-      
+      const title = 'New Booking — Dayang Spa Resto';
+      const message = `${treatment[0].name} • ${startDateTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}–${endDateTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} • ${outlet[0]?.name || ''}`;
+
       if (therapistUser.length > 0) {
         await db.insert(notifications).values({
           id: uuidv4(),
           userId: therapistUser[0].id,
-          title: 'New Treatment Assignment',
-          message: `You have been assigned to ${customerName} for ${treatment[0].name} at ${outlet[0]?.name}`,
-          type: 'TREATMENT_ASSIGNED',
+          title,
+          message,
+          type: 'BOOKING_CREATED',
           relatedId: newBooking[0].id,
+        });
+
+        await dispatchPushToUser(therapistUser[0].id, {
+          type: 'BOOKING_CREATED',
+          title,
+          body: message,
+          data: {
+            bookingId: newBooking[0].bookingId,
+            relatedId: newBooking[0].id,
+            route: '/bookings',
+          },
         });
       }
     }

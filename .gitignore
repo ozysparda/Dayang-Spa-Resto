@@ -78,6 +78,9 @@ dist
 .cache/
 public
 
+# Keep the Vite public folder for the service worker
+!client/public
+
 # Storybook build outputs
 .out
 .storybook-out
@@ -112,3 +115,9 @@ Thumbs.db
 uploads/
 .vercel
 .env*
+
+# Local scratch files from debugging
+_dburl.txt
+nul
+server/*.mjs
+server/*.txt

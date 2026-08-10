@@ -166,6 +166,23 @@ export const notifications = pgTable('notifications', {
   isReadIdx: index('notifications_is_read_idx').on(table.isRead),
 }));
 
+// Browser push subscriptions (Web Push / VAPID). One row per device/browser
+// tab so a single Staff user can be notified on every active client.
+export const pushSubscriptions = pgTable('push_subscriptions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  endpoint: text('endpoint').notNull().unique(),
+  p256dh: text('p256dh').notNull(),
+  auth: text('auth').notNull(),
+  expirationTime: timestamp('expiration_time'),
+  userAgent: text('user_agent'),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => ({
+  userIdIdx: index('push_subscriptions_user_id_idx').on(table.userId),
+}));
+
 // Announcements
 export const announcements = pgTable('announcements', {
   id: text('id').primaryKey(),
@@ -291,6 +308,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
     references: [staffProfiles.userId],
   }),
   notifications: many(notifications),
+  pushSubscriptions: many(pushSubscriptions),
   announcements: many(announcements),
   activityLogs: many(activityLogs),
 }));
@@ -387,6 +405,8 @@ export type TreatmentTransaction = typeof treatmentTransactions.$inferSelect;
 export type NewTreatmentTransaction = typeof treatmentTransactions.$inferInsert;
 export type Notification = typeof notifications.$inferSelect;
 export type NewNotification = typeof notifications.$inferInsert;
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+export type NewPushSubscription = typeof pushSubscriptions.$inferInsert;
 export type Announcement = typeof announcements.$inferSelect;
 export type NewAnnouncement = typeof announcements.$inferInsert;
 export type Inventory = typeof inventory.$inferSelect;

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import api from '../services/api';
 import { toast } from 'react-hot-toast';
+import { usePushNotifications } from '../hooks/usePushNotifications';
 
 export default function Login() {
   const [staffId, setStaffId] = useState('');
@@ -10,6 +11,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const { login } = useAuthStore();
   const navigate = useNavigate();
+  const { ensurePermission, subscribe } = usePushNotifications();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,6 +22,13 @@ export default function Login() {
       const { user, token } = response.data;
       login(user, token);
       toast.success('Login successful!');
+
+      const vapidResponse = await api.get('/push/vapid-public-key').catch(() => null);
+      if (vapidResponse?.data?.publicKey) {
+        await ensurePermission();
+        subscribe(vapidResponse.data.publicKey);
+      }
+
       navigate('/dashboard');
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Login failed');
