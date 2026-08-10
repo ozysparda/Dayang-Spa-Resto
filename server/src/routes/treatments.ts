@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { db } from '../db/index.js';
-import { treatments, activityLogs } from '../db/schema.js';
-import { eq, desc } from 'drizzle-orm';
+import { treatments, activityLogs, bookings, staffProfiles, outlets } from '../db/schema.js';
+import { eq, desc, and, gte, lte, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
@@ -176,3 +176,65 @@ router.delete('/:id', async (req: any, res) => {
 });
 
 export default router;
+
+// Staff-specific endpoints (no ADMIN/DEVELOPER restriction)
+router.use(authenticate);
+
+// GET /api/treatments/my-history - Get current user's treatment history
+router.get('/my-history', async (req: any, res) => {
+  try {
+    // Get current user's staff profile
+    const staffProfile = await db.select()
+      .from(staffProfiles)
+      .where(eq(staffProfiles.userId, req.user.id))
+      .limit(1);
+
+    if (!staffProfile.length) {
+      return res.status(404).json({ message: 'Staff profile not found' });
+    }
+
+    const { startDate, endDate } = req.query;
+    let conditions = [
+      eq(bookings.therapistId, staffProfile[0].id),
+      eq(bookings.outletId, staffProfile[0].outletId),
+      sql`${bookings.status} != 'CANCELLED'`
+    ];
+
+    if (startDate) {
+      const start = new Date(startDate as string);
+      start.setHours(0, 0, 0, 0);
+      conditions.push(gte(bookings.date, start));
+    }
+
+    if (endDate) {
+      const end = new Date(endDate as string);
+      end.setHours(23, 59, 59, 999);
+      conditions.push(lte(bookings.date, end));
+    }
+
+    const history = await db.select({
+      id: bookings.id,
+      bookingId: bookings.bookingId,
+      customerName: bookings.customerName,
+      date: bookings.date,
+      startTime: bookings.startTime,
+      endTime: bookings.endTime,
+      duration: bookings.duration,
+      price: bookings.price,
+      commission: bookings.commission,
+      status: bookings.status,
+      treatmentName: treatments.name,
+      outletName: outlets.name,
+    })
+      .from(bookings)
+      .leftJoin(treatments, eq(bookings.treatmentId, treatments.id))
+      .leftJoin(outlets, eq(bookings.outletId, outlets.id))
+      .where(and(...conditions))
+      .orderBy(desc(bookings.date), desc(bookings.startTime));
+
+    res.json(history);
+  } catch (error) {
+    console.error('Get treatment history error:', error);
+    res.status(500).json({ message: 'Failed to fetch treatment history' });
+  }
+});

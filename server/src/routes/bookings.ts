@@ -21,14 +21,18 @@ function toMinutePrecision(date: Date): Date {
 
 const router = Router();
 
-// All routes require authentication and ADMIN or DEVELOPER role
-router.use(authenticate, authorize('ADMIN', 'DEVELOPER'));
+// All routes require authentication
+router.use(authenticate);
 
-// GET /api/bookings - Get all bookings
+// Helper to check if user is ADMIN/DEVELOPER
+const isAdmin = (req: any) => ['ADMIN', 'DEVELOPER'].includes(req.user.role);
+
+// GET /api/bookings - Get bookings (STAFF sees their own, ADMIN sees all)
 router.get('/', async (req: any, res) => {
   try {
     const userOutletId = req.user.outletId;
     const { date, status, therapistId } = req.query;
+    const admin = isAdmin(req);
 
     let allBookings;
     
@@ -36,6 +40,22 @@ router.get('/', async (req: any, res) => {
       const dateObj = new Date(date as string);
       const nextDay = new Date(dateObj);
       nextDay.setDate(nextDay.getDate() + 1);
+      
+      let whereConditions = [
+        eq(bookings.outletId, userOutletId),
+        gte(bookings.date, dateObj),
+        lte(bookings.date, nextDay)
+      ];
+
+      // If not admin, only show bookings where user is the therapist
+      if (!admin) {
+        const staffProfile = await db.select().from(staffProfiles).where(eq(staffProfiles.userId, req.user.id)).limit(1);
+        if (staffProfile.length > 0) {
+          whereConditions.push(eq(bookings.therapistId, staffProfile[0].id));
+        } else {
+          return res.json([]);
+        }
+      }
       
       allBookings = await db.select({
         id: bookings.id,
@@ -60,13 +80,23 @@ router.get('/', async (req: any, res) => {
         .leftJoin(treatments, eq(bookings.treatmentId, treatments.id))
         .leftJoin(staffProfiles, eq(bookings.therapistId, staffProfiles.id))
         .leftJoin(outlets, eq(bookings.outletId, outlets.id))
-        .where(and(
-          eq(bookings.outletId, userOutletId),
-          gte(bookings.date, dateObj),
-          lte(bookings.date, nextDay)
-        ))
+        .where(and(...whereConditions))
         .orderBy(desc(bookings.startTime));
     } else if (status) {
+      let whereConditions = [
+        eq(bookings.outletId, userOutletId),
+        sql`${bookings.status} = ${status as string}`
+      ];
+
+      if (!admin) {
+        const staffProfile = await db.select().from(staffProfiles).where(eq(staffProfiles.userId, req.user.id)).limit(1);
+        if (staffProfile.length > 0) {
+          whereConditions.push(eq(bookings.therapistId, staffProfile[0].id));
+        } else {
+          return res.json([]);
+        }
+      }
+      
       allBookings = await db.select({
         id: bookings.id,
         bookingId: bookings.bookingId,
@@ -90,41 +120,20 @@ router.get('/', async (req: any, res) => {
         .leftJoin(treatments, eq(bookings.treatmentId, treatments.id))
         .leftJoin(staffProfiles, eq(bookings.therapistId, staffProfiles.id))
         .leftJoin(outlets, eq(bookings.outletId, outlets.id))
-        .where(and(
-          eq(bookings.outletId, userOutletId),
-          sql`${bookings.status} = ${status as string}`
-        ))
-        .orderBy(desc(bookings.startTime));
-    } else if (therapistId) {
-      allBookings = await db.select({
-        id: bookings.id,
-        bookingId: bookings.bookingId,
-        customerName: bookings.customerName,
-        customerPhone: bookings.customerPhone,
-        date: bookings.date,
-        startTime: bookings.startTime,
-        endTime: bookings.endTime,
-        duration: bookings.duration,
-        room: bookings.room,
-        price: bookings.price,
-        commission: bookings.commission,
-        status: bookings.status,
-        notes: bookings.notes,
-        treatmentName: treatments.name,
-        therapistName: staffProfiles.name,
-        outletName: outlets.name,
-        createdAt: bookings.createdAt,
-      })
-        .from(bookings)
-        .leftJoin(treatments, eq(bookings.treatmentId, treatments.id))
-        .leftJoin(staffProfiles, eq(bookings.therapistId, staffProfiles.id))
-        .leftJoin(outlets, eq(bookings.outletId, outlets.id))
-        .where(and(
-          eq(bookings.outletId, userOutletId),
-          eq(bookings.therapistId, therapistId as string)
-        ))
+        .where(and(...whereConditions))
         .orderBy(desc(bookings.startTime));
     } else {
+      let whereConditions = [eq(bookings.outletId, userOutletId)];
+
+      if (!admin) {
+        const staffProfile = await db.select().from(staffProfiles).where(eq(staffProfiles.userId, req.user.id)).limit(1);
+        if (staffProfile.length > 0) {
+          whereConditions.push(eq(bookings.therapistId, staffProfile[0].id));
+        } else {
+          return res.json([]);
+        }
+      }
+      
       allBookings = await db.select({
         id: bookings.id,
         bookingId: bookings.bookingId,
@@ -148,7 +157,7 @@ router.get('/', async (req: any, res) => {
         .leftJoin(treatments, eq(bookings.treatmentId, treatments.id))
         .leftJoin(staffProfiles, eq(bookings.therapistId, staffProfiles.id))
         .leftJoin(outlets, eq(bookings.outletId, outlets.id))
-        .where(eq(bookings.outletId, userOutletId))
+        .where(and(...whereConditions))
         .orderBy(desc(bookings.startTime));
     }
     res.json(allBookings);
@@ -205,8 +214,8 @@ router.get('/:id', async (req: any, res) => {
   }
 });
 
-// POST /api/bookings - Create new booking
-router.post('/', async (req: any, res) => {
+// POST /api/bookings - Create new booking (ADMIN/DEVELOPER only)
+router.post('/', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
   try {
     const userOutletId = req.user.outletId;
     const {
@@ -398,8 +407,8 @@ router.post('/', async (req: any, res) => {
   }
 });
 
-// PATCH /api/bookings/:id - Update booking
-router.patch('/:id', async (req: any, res) => {
+// PATCH /api/bookings/:id - Update booking (ADMIN/DEVELOPER only)
+router.patch('/:id', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
   try {
     const userOutletId = req.user.outletId;
     const { id } = req.params;
@@ -527,8 +536,8 @@ router.patch('/:id', async (req: any, res) => {
   }
 });
 
-// DELETE /api/bookings/:id - Cancel booking
-router.delete('/:id', async (req: any, res) => {
+// DELETE /api/bookings/:id - Cancel booking (ADMIN/DEVELOPER only)
+router.delete('/:id', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
   try {
     const userOutletId = req.user.outletId;
     const { id } = req.params;

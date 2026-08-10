@@ -44,6 +44,9 @@ export default function Chat() {
   const [showNewConversation, setShowNewConversation] = useState(false);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // Track whether the chat component is mounted to prevent state updates after unmount
+  const mountedRef = useRef(true);
 
   // Ref to the latest fetchMessages so we can trigger an immediate refresh
   // after sending a message without an uncancellable .then() that could
@@ -75,6 +78,14 @@ export default function Chat() {
       });
     return () => controller.abort();
   }, []);
+  
+  // Track mount status to prevent state updates after unmount
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
     useEffect(() => {
     if (!selectedConversation) {
@@ -86,14 +97,14 @@ export default function Chat() {
     let cancelled = false;
 
     const fetchMessages = async () => {
-      if (cancelled) return;
+      if (cancelled || !mountedRef.current) return;
       controller = new AbortController();
       setMessagesLoading(true);
       try {
         const res = await api.get(`/chat/conversations/${selectedConversation.id}/messages`, {
           signal: controller.signal,
         });
-        if (!cancelled && !controller.signal.aborted) {
+        if (!cancelled && !controller.signal.aborted && mountedRef.current) {
           setMessages(res.data);
         }
       } catch (error: any) {
@@ -101,11 +112,13 @@ export default function Chat() {
           error?.name === 'CanceledError' ||
           error?.name === 'AbortError' ||
           error?.code === 'ERR_CANCELED';
-        if (!cancelled2 && !cancelled) {
+        if (!cancelled2 && !cancelled && mountedRef.current) {
           console.error('Failed to fetch messages:', error);
         }
       } finally {
-        if (!cancelled) setMessagesLoading(false);
+        if (!cancelled && mountedRef.current) {
+          setMessagesLoading(false);
+        }
       }
     };
 
@@ -135,10 +148,13 @@ export default function Chat() {
         { content: newMessage }
       );
       setNewMessage('');
-      // Immediate, cancellation-safe refresh. The closure is guarded by the
-      // mounted/signal checks inside fetchMessages, so navigating away right
-      // after sending can never produce a stray setState.
-      fetchMessagesRef.current();
+      // Only refresh if still mounted and have a selected conversation
+      if (mountedRef.current && selectedConversation) {
+        // Immediate, cancellation-safe refresh. The closure is guarded by the
+        // mounted/signal checks inside fetchMessages, so navigating away right
+        // after sending can never produce a stray setState.
+        fetchMessagesRef.current();
+      }
     } catch (error) {
       // Error handled by useAsyncMutation
     }

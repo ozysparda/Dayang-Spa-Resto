@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { db } from '../db/index.js';
-import { announcements, announcementReads, users, activityLogs } from '../db/schema.js';
+import { announcements, announcementReads, users, staffProfiles, activityLogs, notifications } from '../db/schema.js';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
+import { dispatchPushToUser } from '../routes/push.js';
 
 const router = Router();
 
@@ -156,6 +157,63 @@ router.post('/', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
       },
       outletId: userOutletId,
     });
+
+    // Get target users and create notifications + push notifications
+    let targetUserIds: string[] = [];
+    
+    if (targetRole) {
+      const targetedUsers = await db.select({ userId: users.id })
+        .from(users)
+        .innerJoin(staffProfiles, eq(users.id, staffProfiles.userId))
+        .where(and(
+          eq(staffProfiles.outletId, targetOutletId || userOutletId),
+          eq(users.role, targetRole),
+          eq(users.isActive, true)
+        ));
+      targetUserIds = targetedUsers.map(u => u.userId);
+    } else {
+      const targetedUsers = await db.select({ userId: users.id })
+        .from(users)
+        .innerJoin(staffProfiles, eq(users.id, staffProfiles.userId))
+        .where(and(
+          eq(staffProfiles.outletId, targetOutletId || userOutletId),
+          eq(users.isActive, true)
+        ));
+      targetUserIds = targetedUsers.map(u => u.userId);
+    }
+
+    // Create notifications for target users (excluding creator)
+    const notificationPromises = targetUserIds
+      .filter(userId => userId !== req.user.id)
+      .map(userId =>
+        db.insert(notifications).values({
+          id: uuidv4(),
+          userId,
+          title: `New Announcement: ${title}`,
+          message: content.substring(0, 200) + (content.length > 200 ? '...' : ''),
+          type: 'ANNOUNCEMENT',
+          relatedId: newAnnouncement[0].id,
+        })
+      );
+    
+    await Promise.all(notificationPromises);
+
+    // Dispatch push notifications to target users (excluding creator)
+    const pushPromises = targetUserIds
+      .filter(userId => userId !== req.user.id)
+      .map(userId =>
+        dispatchPushToUser(userId, {
+          type: 'ANNOUNCEMENT',
+          title: `New Announcement: ${title}`,
+          body: content.substring(0, 200) + (content.length > 200 ? '...' : ''),
+          data: {
+            announcementId: newAnnouncement[0].id,
+            route: '/announcements',
+          },
+        }).catch(err => console.error('Push notification failed:', err))
+      );
+    
+    await Promise.allSettled(pushPromises);
 
     res.status(201).json(newAnnouncement[0]);
   } catch (error) {

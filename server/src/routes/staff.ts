@@ -8,6 +8,157 @@ import bcrypt from 'bcryptjs';
 
 const router = Router();
 
+// All routes require authentication
+router.use(authenticate);
+
+// GET /api/staff/me - Get current user's staff profile
+router.get('/me', async (req: any, res) => {
+  try {
+    const staffProfile = await db.select({
+      id: staffProfiles.id,
+      name: staffProfiles.name,
+      email: staffProfiles.email,
+      phone: staffProfiles.phone,
+      isActive: staffProfiles.isActive,
+      outletId: staffProfiles.outletId,
+      outletName: outlets.name,
+      userId: users.id,
+      username: users.username,
+      role: users.role,
+      status: staffStatus.status,
+      createdAt: staffProfiles.createdAt,
+    })
+      .from(staffProfiles)
+      .leftJoin(users, eq(staffProfiles.userId, users.id))
+      .leftJoin(outlets, eq(staffProfiles.outletId, outlets.id))
+      .leftJoin(staffStatus, eq(staffProfiles.id, staffStatus.staffId))
+      .where(eq(staffProfiles.userId, req.user.id))
+      .limit(1);
+
+    if (!staffProfile.length) {
+      return res.status(404).json({ message: 'Staff profile not found' });
+    }
+
+    res.json(staffProfile[0]);
+  } catch (error) {
+    console.error('Get staff profile error:', error);
+    res.status(500).json({ message: 'Failed to fetch staff profile' });
+  }
+});
+
+// PATCH /api/staff/my-status - Update current user's own status
+router.patch('/my-status', async (req: any, res) => {
+  try {
+    const { status } = req.body;
+
+    if (!status || !['FREE', 'IN_CHARGE', 'IN_TREATMENT', 'ON_BREAK', 'OFF'].includes(status)) {
+      return res.status(400).json({ message: 'Invalid status' });
+    }
+
+    // Get current user's staff profile
+    const staffProfile = await db.select()
+      .from(staffProfiles)
+      .where(eq(staffProfiles.userId, req.user.id))
+      .limit(1);
+
+    if (!staffProfile.length) {
+      return res.status(404).json({ message: 'Staff profile not found' });
+    }
+
+    const staffId = staffProfile[0].id;
+    const userOutletId = staffProfile[0].outletId;
+
+    // Get current status
+    const currentStatus = await db.select()
+      .from(staffStatus)
+      .where(and(
+        eq(staffStatus.staffId, staffId),
+        eq(staffStatus.outletId, userOutletId)
+      ))
+      .limit(1);
+
+    if (!currentStatus.length) {
+      return res.status(404).json({ message: 'Staff status not found' });
+    }
+
+    const oldStatus = currentStatus[0].status;
+
+    // Update status
+    const updatedStatus = await db.update(staffStatus)
+      .set({ status, updatedAt: new Date() })
+      .where(eq(staffStatus.staffId, staffId))
+      .returning();
+
+    // Create status history
+    await db.insert(staffStatusHistory).values({
+      id: uuidv4(),
+      staffId,
+      oldStatus,
+      newStatus: status,
+      changedBy: req.user.id,
+      outletId: userOutletId,
+    });
+
+    // Create activity log
+    await db.insert(activityLogs).values({
+      id: uuidv4(),
+      userId: req.user.id,
+      userName: req.user.username,
+      action: 'STAFF_STATUS_CHANGED',
+      entityType: 'STAFF',
+      entityId: staffId,
+      details: {
+        oldStatus,
+        newStatus: status,
+      },
+      outletId: userOutletId,
+    });
+
+    res.json(updatedStatus[0]);
+  } catch (error) {
+    console.error('Update staff status error:', error);
+    res.status(500).json({ message: 'Failed to update staff status' });
+  }
+});
+
+// GET /api/staff/my-status-history - Get current user's status history
+router.get('/my-status-history', async (req: any, res) => {
+  try {
+    // Get current user's staff profile
+    const staffProfile = await db.select()
+      .from(staffProfiles)
+      .where(eq(staffProfiles.userId, req.user.id))
+      .limit(1);
+
+    if (!staffProfile.length) {
+      return res.status(404).json({ message: 'Staff profile not found' });
+    }
+
+    const limit = parseInt(req.query.limit as string) || 50;
+
+    const history = await db.select({
+      id: staffStatusHistory.id,
+      oldStatus: staffStatusHistory.oldStatus,
+      newStatus: staffStatusHistory.newStatus,
+      timestamp: staffStatusHistory.timestamp,
+      changedByName: users.username,
+    })
+      .from(staffStatusHistory)
+      .leftJoin(users, eq(staffStatusHistory.changedBy, users.id))
+      .where(and(
+        eq(staffStatusHistory.staffId, staffProfile[0].id),
+        eq(staffStatusHistory.outletId, staffProfile[0].outletId)
+      ))
+      .orderBy(desc(staffStatusHistory.timestamp))
+      .limit(limit);
+
+    res.json(history);
+  } catch (error) {
+    console.error('Get staff status history error:', error);
+    res.status(500).json({ message: 'Failed to fetch staff status history' });
+  }
+});
+
 // All routes require authentication and ADMIN or DEVELOPER role
 router.use(authenticate, authorize('ADMIN', 'DEVELOPER'));
 
