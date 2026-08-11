@@ -214,7 +214,97 @@ async function pushSchema() {
     await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS room TEXT`);
     await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS notes TEXT`);
     await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS recorded_by VARCHAR(255)`);
-    await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()`);
+        await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()`);
+
+    // =========================================================================
+    // Tables defined in schema.ts but NEVER created by the original push.ts.
+    // Their absence in production caused the runtime 500s logged on Vercel:
+    //   relation "staff_status_history" does not exist      -> PATCH /api/staff/:id/status
+    //   relation "announcement_reads" does not exist        -> GET  /api/announcements
+    //   relation "push_subscriptions" does not exist       -> /api/push/* (notifications)
+    //   (inventory_imports / inventory_import_rows / chat_participants were also
+    //    missing and would 500 on first use).
+    //
+    // CREATE TABLE IF NOT EXISTS is idempotent: safe to re-run on databases that
+    // already have these tables (e.g. after a previous partial push).
+    // FK targets (users, outlets, staff_profiles, announcements, chat_conversations,
+    // inventory) already exist in production, so these can be created in this order.
+    // =========================================================================
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS staff_status_history (
+        id VARCHAR(255) PRIMARY KEY,
+        staff_id VARCHAR(255) NOT NULL REFERENCES staff_profiles(id) ON DELETE CASCADE,
+        old_status VARCHAR(50) CHECK (old_status IN ('FREE', 'IN_CHARGE', 'IN_TREATMENT', 'ON_BREAK', 'OFF')),
+        new_status VARCHAR(50) NOT NULL CHECK (new_status IN ('FREE', 'IN_CHARGE', 'IN_TREATMENT', 'ON_BREAK', 'OFF')),
+        changed_by VARCHAR(255) NOT NULL REFERENCES users(id),
+        outlet_id VARCHAR(255) NOT NULL REFERENCES outlets(id),
+        "timestamp" TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id VARCHAR(255) PRIMARY KEY,
+        user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        endpoint TEXT NOT NULL UNIQUE,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        expiration_time TIMESTAMP,
+        user_agent TEXT,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS announcement_reads (
+        id VARCHAR(255) PRIMARY KEY,
+        announcement_id VARCHAR(255) NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
+        user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        read_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS inventory_imports (
+        id VARCHAR(255) PRIMARY KEY,
+        file_name TEXT NOT NULL,
+        imported_by VARCHAR(255) NOT NULL REFERENCES users(id),
+        total_rows INTEGER NOT NULL,
+        success_rows INTEGER NOT NULL,
+        failed_rows INTEGER NOT NULL,
+        errors JSONB,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS inventory_import_rows (
+        id VARCHAR(255) PRIMARY KEY,
+        import_id VARCHAR(255) NOT NULL REFERENCES inventory_imports(id) ON DELETE CASCADE,
+        row_number INTEGER NOT NULL,
+        sku TEXT NOT NULL,
+        product_name TEXT,
+        quantity INTEGER,
+        status VARCHAR(50) NOT NULL CHECK (status IN ('SUCCESS', 'FAILED', 'SKIPPED')) DEFAULT 'SUCCESS',
+        error_message TEXT,
+        inventory_id VARCHAR(255) REFERENCES inventory(id),
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS chat_participants (
+        id VARCHAR(255) PRIMARY KEY,
+        conversation_id VARCHAR(255) NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+        user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        joined_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
 
     console.log('Schema pushed successfully!');
   } catch (error) {
