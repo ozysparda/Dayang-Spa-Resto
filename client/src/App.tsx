@@ -14,6 +14,7 @@ import UserManagement from './pages/UserManagement';
 import Outlets from './pages/Outlets';
 import SystemSettings from './pages/SystemSettings';
 import Layout from './components/Layout';
+import Commissions from './pages/Commissions';
 
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles: string[] }) {
   const { user, isAuthenticated } = useAuthStore();
@@ -53,7 +54,7 @@ function App() {
           </ProtectedRoute>
         } />
         <Route path="attendance" element={
-          <ProtectedRoute allowedRoles={['ADMIN', 'DEVELOPER']}>
+          <ProtectedRoute allowedRoles={['STAFF', 'ADMIN', 'DEVELOPER']}>
             <Attendance />
           </ProtectedRoute>
         } />
@@ -65,6 +66,11 @@ function App() {
         <Route path="inventory" element={
           <ProtectedRoute allowedRoles={['ADMIN', 'DEVELOPER']}>
             <Inventory />
+          </ProtectedRoute>
+        } />
+        <Route path="commissions" element={
+          <ProtectedRoute allowedRoles={['ADMIN', 'DEVELOPER']}>
+            <Commissions />
           </ProtectedRoute>
         } />
         <Route path="chat" element={<Chat />} />

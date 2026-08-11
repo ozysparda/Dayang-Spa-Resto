@@ -19,20 +19,43 @@ export default function NotificationBell() {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
+  // Track mount state and the in-flight request so we never call setState
+  // (or keep polling) after the component unmounts — e.g. when the user
+  // navigates backward / exits to /login. Layout unmounts here, and without
+  // this guard the polling fetch resolved setState on an unmounted component,
+  // which is what surfaced as "back/exit → error".
+  const mountedRef = useRef(true);
+  const controllerRef = useRef<AbortController | null>(null);
+
   const fetchNotifications = async () => {
+    if (!mountedRef.current) return;
+    const controller = new AbortController();
+    controllerRef.current = controller;
+
     try {
-      const res = await api.get('/notifications?limit=20');
-      setNotifications(res.data.notifications || []);
-      setUnreadCount(res.data.unreadCount || 0);
-    } catch (e) {
-      // ignore
+      const res = await api.get('/notifications?limit=20', { signal: controller.signal });
+      // Only update state if still mounted and the request wasn't aborted.
+      if (mountedRef.current && !controller.signal.aborted) {
+        setNotifications(res.data.notifications || []);
+        setUnreadCount(res.data.unreadCount || 0);
+      }
+    } catch (e: any) {
+      if (e?.name === 'AbortError' || e?.name === 'CanceledError' || e?.code === 'ERR_CANCELED') {
+        return;
+      }
+      // Swallow other errors silently (e.g. auth redirect) to avoid noise.
     }
   };
 
   useEffect(() => {
+    mountedRef.current = true;
     fetchNotifications();
     const poll = setInterval(fetchNotifications, 20000);
-    return () => clearInterval(poll);
+    return () => {
+      mountedRef.current = false;
+      controllerRef.current?.abort();
+      clearInterval(poll);
+    };
   }, []);
 
   // Close dropdown when clicking outside

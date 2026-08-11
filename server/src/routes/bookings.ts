@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { db } from '../db/index.js';
-import { bookings, staffStatus, treatments, staffProfiles, outlets, users, notifications, activityLogs, staffStatusHistory } from '../db/schema.js';
+import { bookings, staffStatus, treatments, staffProfiles, outlets, users, notifications, activityLogs, staffStatusHistory, treatmentTransactions } from '../db/schema.js';
 import { eq, and, gte, lt, lte, desc, sql, or } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { dispatchPushToUser } from '../routes/push.js';
@@ -514,6 +514,36 @@ router.patch('/:id', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
       }
     }
 
+    // Generate commission/treatment-transaction when booking is COMPLETED
+    if (updates.status === 'COMPLETED') {
+      try {
+        const existingTx = await db.select()
+          .from(treatmentTransactions)
+          .where(eq(treatmentTransactions.bookingId, existingBooking[0].bookingId))
+          .limit(1);
+
+        if (existingTx.length === 0) {
+          await db.insert(treatmentTransactions).values({
+            id: uuidv4(),
+            bookingId: existingBooking[0].bookingId,
+            outletId: existingBooking[0].outletId,
+            therapistId: existingBooking[0].therapistId,
+            treatmentId: existingBooking[0].treatmentId,
+            customerName: existingBooking[0].customerName,
+            startTime: existingBooking[0].startTime,
+            endTime: existingBooking[0].endTime,
+            price: String(existingBooking[0].price),
+            commission: String(existingBooking[0].commission ?? 0),
+            room: existingBooking[0].room,
+            notes: existingBooking[0].notes,
+            recordedBy: req.user.id,
+          });
+        }
+      } catch (txError) {
+        console.error('Error generating commission transaction:', txError);
+      }
+    }
+
     // Create activity log
     await db.insert(activityLogs).values({
       id: uuidv4(),
@@ -665,10 +695,229 @@ router.get('/available-therapists', async (req: any, res) => {
     // Filter out conflicting therapists
     const availableTherapists = allStaff.filter(staff => !conflictingTherapistIds.has(staff.id));
 
-    res.json(availableTherapists);
+        res.json(availableTherapists);
   } catch (error) {
     console.error('Get available therapists error:', error);
     res.status(500).json({ message: 'Failed to fetch available therapists' });
+  }
+});
+
+// GET /api/bookings/availability - Grouped staff availability for a time slot.
+//
+// Queries:
+//   startTime   ISO string (e.g. "2026-08-11T10:10:00") of the slot start
+//   duration    slot length in minutes (optional; defaults to 60)
+//   treatmentId when given, the duration is taken from the treatment master
+//
+// Returns:
+//   {
+//     startTime, endTime, duration, treatmentName?,
+//     available: [{ id, name, status }],
+//     busy:    [{ id, name, status, bookings: [{ customerName, treatmentName, startTime, endTime, status }] }],
+//     offAir:   [{ id, name }]
+//   }
+//
+// This is THE core scheduling feature: a cashier picks date/time + treatment
+// and immediately sees who is FREE to take it, who is BUSY (with the
+// conflicting booking details), and who is OFF AIR.
+router.get('/availability', async (req: any, res) => {
+  try {
+    const userOutletId = req.user.outletId;
+    const { startTime, duration, treatmentId } = req.query;
+
+    if (!startTime) {
+      return res.status(400).json({ message: 'startTime is required' });
+    }
+
+    // Resolve duration (and treatment name) from the selected treatment,
+    // otherwise fall back to the query param or a default of 60 min.
+    let slotMinutes = 60;
+    let treatmentName = '';
+    if (treatmentId) {
+      const t = await db
+        .select({ duration: treatments.duration, name: treatments.name })
+        .from(treatments)
+        .where(eq(treatments.id, treatmentId as string))
+        .limit(1);
+      if (!t.length) {
+        return res.status(404).json({ message: 'Treatment not found' });
+      }
+      slotMinutes = t[0].duration;
+      treatmentName = t[0].name;
+    } else if (duration) {
+      const n = Number(duration);
+      if (Number.isNaN(n) || n <= 0) {
+        return res.status(400).json({ message: 'Invalid duration' });
+      }
+      slotMinutes = n;
+    }
+
+    const startDateTime = new Date(startTime as string);
+    const endDateTime = new Date(startDateTime);
+    endDateTime.setMinutes(endDateTime.getMinutes() + slotMinutes);
+
+    // All active staff at the user's outlet with their current live status.
+    const allStaff = await db
+      .select({
+        id: staffProfiles.id,
+        name: staffProfiles.name,
+        status: staffStatus.status,
+      })
+      .from(staffProfiles)
+      .leftJoin(staffStatus, eq(staffProfiles.id, staffStatus.staffId))
+      .where(and(eq(staffProfiles.outletId, userOutletId), eq(staffProfiles.isActive, true)));
+
+    // Bookings that overlap the requested slot — same three overlap cases used
+    // everywhere else in the app so availability matches creation logic.
+    const overlapping = await db
+      .select({
+        therapistId: bookings.therapistId,
+        customerName: bookings.customerName,
+        treatmentName: treatments.name,
+        startTime: bookings.startTime,
+        endTime: bookings.endTime,
+        status: bookings.status,
+      })
+      .from(bookings)
+      .leftJoin(treatments, eq(bookings.treatmentId, treatments.id))
+      .where(
+        and(
+          eq(bookings.outletId, userOutletId),
+          sql`${bookings.status} != 'CANCELLED'`,
+          or(
+            and(gte(bookings.startTime, startDateTime), lt(bookings.startTime, endDateTime)),
+            and(gte(bookings.endTime, startDateTime), lt(bookings.endTime, endDateTime)),
+            and(lte(bookings.startTime, startDateTime), gte(bookings.endTime, endDateTime))
+          )
+        )
+      );
+
+    const overlapByTherapist: Record<string, any[]> = {};
+    overlapping.forEach((o) => {
+      (overlapByTherapist[o.therapistId] = overlapByTherapist[o.therapistId] || []).push(o);
+    });
+
+    const available: any[] = [];
+    const busy: any[] = [];
+    const offAir: any[] = [];
+
+    for (const s of allStaff) {
+      const conflicts = overlapByTherapist[s.id] || [];
+      if (conflicts.length > 0) {
+        busy.push({ ...s, bookings: conflicts });
+      } else if (s.status === 'OFF') {
+        offAir.push({ ...s });
+      } else {
+        available.push({ ...s });
+      }
+    }
+
+    res.json({
+      startTime: startDateTime.toISOString(),
+      endTime: endDateTime.toISOString(),
+      duration: slotMinutes,
+      treatmentName,
+      available,
+      busy,
+      offAir,
+    });
+  } catch (error) {
+    console.error('Get availability error:', error);
+    res.status(500).json({ message: 'Failed to fetch availability' });
+  }
+});
+
+// GET /api/bookings/schedule - Get schedule grid for a date
+// Returns time slots (09:00-21:00) x staff matrix with status for each slot
+router.get('/schedule', async (req: any, res) => {
+  try {
+    const userOutletId = req.user.outletId;
+    const dateStr = req.query.date as string;
+    if (!dateStr) {
+      return res.status(400).json({ message: 'date is required (YYYY-MM-DD)' });
+    }
+
+    const slotDate = new Date(dateStr);
+    slotDate.setHours(0, 0, 0, 0);
+    const nextDay = new Date(slotDate);
+    nextDay.setDate(nextDay.getDate() + 1);
+
+    // operating hours: 09:00 to 21:00, 30-minute slots
+    const slots: string[] = [];
+    for (let h = 9; h <= 20; h++) {
+      slots.push(`${String(h).padStart(2, '0')}:00`);
+      slots.push(`${String(h).padStart(2, '0')}:30`);
+    }
+
+    // all active staff at outlet
+    const allStaff = await db
+      .select({
+        id: staffProfiles.id,
+        name: staffProfiles.name,
+        status: staffStatus.status,
+      })
+      .from(staffProfiles)
+      .leftJoin(staffStatus, eq(staffProfiles.id, staffStatus.staffId))
+      .where(and(eq(staffProfiles.outletId, userOutletId), eq(staffProfiles.isActive, true)))
+      .orderBy(staffProfiles.name);
+
+    // all non-cancelled bookings for the date at this outlet
+    const dayBookings = await db
+      .select({
+        therapistId: bookings.therapistId,
+        customerName: bookings.customerName,
+        treatmentName: treatments.name,
+        startTime: bookings.startTime,
+        endTime: bookings.endTime,
+        status: bookings.status,
+      })
+      .from(bookings)
+      .leftJoin(treatments, eq(bookings.treatmentId, treatments.id))
+      .where(
+        and(
+          eq(bookings.outletId, userOutletId),
+          gte(bookings.date, slotDate),
+          lt(bookings.date, nextDay),
+          sql`${bookings.status} != 'CANCELLED'`
+        )
+      );
+
+    // Build matrix: staff -> slot label -> { status, booking? }
+    const matrix: Record<string, Record<string, { status: string; booking?: any }>> = {};
+    for (const s of allStaff) {
+      matrix[s.id] = {};
+      for (const slot of slots) {
+        const [h, m] = slot.split(':').map(Number);
+        const slotStart = new Date(slotDate);
+        slotStart.setHours(h, m, 0, 0);
+        const slotEnd = new Date(slotStart);
+        slotEnd.setMinutes(slotEnd.getMinutes() + 30);
+
+        const overlapping = dayBookings.filter((b) => {
+          if (b.therapistId !== s.id) return false;
+          const bs = new Date(b.startTime);
+          const be = new Date(b.endTime);
+          return bs < slotEnd && be > slotStart;
+        });
+
+        if (overlapping.length > 0) {
+          matrix[s.id][slot] = { status: 'BUSY', booking: overlapping[0] };
+        } else if (s.status === 'OFF') {
+          matrix[s.id][slot] = { status: 'OFF' };
+        } else if (s.status === 'ON_BREAK') {
+          matrix[s.id][slot] = { status: 'BREAK' };
+        } else if (s.status === 'IN_CHARGE') {
+          matrix[s.id][slot] = { status: 'IN_CHARGE' };
+        } else {
+          matrix[s.id][slot] = { status: 'FREE' };
+        }
+      }
+    }
+
+    res.json({ date: dateStr, slots, staff: allStaff, matrix });
+  } catch (error) {
+    console.error('Get schedule error:', error);
+    res.status(500).json({ message: 'Failed to fetch schedule' });
   }
 });
 

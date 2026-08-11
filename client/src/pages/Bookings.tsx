@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { Plus, Search, Filter } from 'lucide-react';
 import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
 import { api } from '../services/api';
+import AvailabilityBoard from '../components/AvailabilityBoard';
+import ScheduleGrid from '../components/ScheduleGrid';
 import toast from 'react-hot-toast';
 
 interface Booking {
@@ -45,10 +47,27 @@ export default function Bookings() {
   const treatments = treatmentsData || [];
   const staff = staffData || [];
 
-  const [showModal, setShowModal] = useState(false);
+    const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [availabilityError, setAvailabilityError] = useState<string | null>(null);
+
+    // Top-level view toggle between bookings list, availability board, and schedule grid.
+  const [view, setView] = useState<'bookings' | 'availability' | 'schedule'>('bookings');
+
+  // When a therapist is selected from the availability board, pre-fill the
+  // new-booking form and switch to the booking flow.
+  const selectAvailableStaff = (selection: { staff: any; date: string; time: string; treatment: string }) => {
+    setFormData({
+      ...formData,
+      staffId: selection.staff.id,
+      ...(selection.treatment ? { treatmentId: selection.treatment } : {}),
+      date: selection.date,
+      startTime: selection.time,
+    });
+    setView('bookings');
+    setShowModal(true);
+  };
   const [formData, setFormData] = useState({
     customerName: '',
     treatmentId: '',
@@ -220,8 +239,60 @@ export default function Bookings() {
           <Plus className="w-5 h-5" />
           New Booking
         </button>
+            </div>
+
+      {/* View tabs */}
+      <div className="flex gap-2 mb-6 border-b border-gray-200">
+        <button
+          onClick={() => setView('bookings')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${view === 'bookings' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-600 hover:text-gray-900'}`}
+        >
+          Today's Bookings
+        </button>
+        <button
+          onClick={() => setView('availability')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${view === 'availability' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-600 hover:text-gray-900'}`}
+        >
+          Staff Availability
+        </button>
+        <button
+          onClick={() => setView('schedule')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${view === 'schedule' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-600 hover:text-gray-900'}`}
+        >
+          Schedule
+        </button>
       </div>
 
+      {view === 'availability' && (
+        <div className="card mb-6">
+          <AvailabilityBoard
+            treatments={treatments}
+            onDateChange={() => {}}
+            onTimeChange={() => {}}
+            onTreatmentChange={() => {}}
+            onSelectStaff={selectAvailableStaff}
+          />
+        </div>
+      )}
+
+      {view === 'schedule' && (
+        <div className="mb-6">
+          <ScheduleGrid
+            onSelectSlot={(slot) => {
+              setFormData({
+                ...formData,
+                staffId: slot.staffId,
+                date: slot.date,
+                startTime: slot.time,
+              });
+              setShowModal(true);
+            }}
+          />
+        </div>
+      )}
+
+      {view === 'bookings' && (
+      <>
       {/* Filters */}
       <div className="card mb-6">
         <div className="flex flex-col md:flex-row gap-4">
@@ -303,8 +374,10 @@ export default function Bookings() {
               )}
             </tbody>
           </table>
-        </div>
+              </div>
       </div>
+      </>
+      )}
 
       {/* Create Booking Modal */}
       {showModal && (
