@@ -97,4 +97,14 @@ const startServer = async () => {
   }
 };
 
-startServer();
+// Start the HTTP listener only when run directly (e.g. `npm run start` /
+// local dev). Under Vercel serverless, this module is imported and the
+// exported `app` is used as the serverless handler instead - so we must
+// never call `app.listen()` in that context.
+const isVercel = !!process.env.VERCEL || !!process.env.VERCEL_ENV;
+if (!isVercel) {
+  startServer();
+}
+
+export default app;
+export { app };

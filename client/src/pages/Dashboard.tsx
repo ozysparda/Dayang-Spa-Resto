@@ -1,5 +1,8 @@
+import { useEffect, useState } from 'react';
 import { Calendar, Users, Clock, AlertCircle, Activity, UserCheck } from 'lucide-react';
-import { useParallelFetch } from '../hooks/useAsyncData';
+import { useParallelFetch, useAsyncMutation } from '../hooks/useAsyncData';
+import { useAuthStore } from '../stores/authStore';
+import toast from 'react-hot-toast';
 
 interface DashboardStats {
   bookingsToday: number;
@@ -43,16 +46,53 @@ type DashboardData = {
   staffStatus: StaffStatus[];
   nextBookings: NextBooking[];
   activities: Activity[];
+  myProfile?: any;
 };
 
 export default function Dashboard() {
-  const { data, loading } = useParallelFetch<DashboardData>([
+  const { user } = useAuthStore();
+  const updateStatus = useAsyncMutation();
+  const [myStatus, setMyStatus] = useState('');
+  const [statusUpdating, setStatusUpdating] = useState(false);
+
+  // Auto-refresh dashboard data every 30 seconds for real-time updates
+  const { data, loading, refetch } = useParallelFetch<DashboardData>([
     { key: 'stats', url: '/dashboard/stats' },
     { key: 'staffStatus', url: '/dashboard/staff-status' },
     { key: 'nextBookings', url: '/dashboard/next-bookings' },
     { key: 'activities', url: '/dashboard/activity?limit=10' },
+    ...(user?.role === 'STAFF' ? [{ key: 'myProfile', url: '/staff/me' }] : []),
   ]);
 
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refetch();
+    }, 30000); // Refresh every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [refetch]);
+
+  // Sync local status from the fetched staff profile
+  useEffect(() => {
+    if (data?.myProfile && myStatus === '') {
+      setMyStatus((data.myProfile)?.status || 'OFF');
+    }
+  }, [data, myStatus]);
+
+    const handleStatusChange = async (status: string) => {
+    if (statusUpdating || status === myStatus) return;
+    setStatusUpdating(true);
+    try {
+      await updateStatus('/staff/my-status', 'PATCH', { status });
+      setMyStatus(status);
+      toast.success('Status updated to ' + status.replace(/_/g, ' '));
+      refetch();
+    } catch (error) {
+      // Error handled by useAsyncMutation
+    } finally {
+      setStatusUpdating(false);
+    }
+  };
   const stats = data?.stats || {
     bookingsToday: 0,
     staffOnline: 0,
@@ -100,11 +140,15 @@ export default function Dashboard() {
     );
   }
 
+  const isStaff = user?.role === 'STAFF';
+  const isAdmin = ['ADMIN', 'DEVELOPER'].includes(user?.role || '');
+
   const statCards = [
     { label: 'Bookings Today', value: stats.bookingsToday, icon: Calendar, color: 'bg-blue-500' },
-    { label: 'Staff Online', value: stats.staffOnline, icon: Users, color: 'bg-green-500' },
-    { label: 'Pending Bookings', value: stats.pendingBookings, icon: Clock, color: 'bg-yellow-500' },
-    { label: 'Staff on Break', value: stats.staffOnBreak, icon: AlertCircle, color: 'bg-orange-500' },
+    ...(isAdmin ? [{ label: 'Staff Online', value: stats.staffOnline, icon: Users, color: 'bg-green-500' }] : []),
+    ...(isAdmin ? [{ label: 'Pending Bookings', value: stats.pendingBookings, icon: Clock, color: 'bg-yellow-500' }] : []),
+    ...(isAdmin ? [{ label: 'Staff on Break', value: stats.staffOnBreak, icon: AlertCircle, color: 'bg-orange-500' }] : []),
+    ...(isStaff ? [{ label: 'My Status', value: stats.availableTherapists > 0 ? 'Active' : 'Inactive', icon: Activity, color: 'bg-purple-500' }] : []),
   ];
 
   return (
@@ -127,6 +171,30 @@ export default function Dashboard() {
           </div>
         ))}
       </div>
+
+
+      {/* Staff self status control (STAFF role only) */}
+      {isStaff && (
+        <div className="card mb-8">
+          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+            <UserCheck className="w-5 h-5" />
+            My Availability
+          </h2>
+          <p className="text-sm text-gray-500 mb-3">Current status: <span className="font-medium text-gray-900">{myStatus ? myStatus.replace(/_/g, ' ') : '...'}</span></p>
+          <div className="flex flex-wrap gap-2">
+            {['FREE', 'IN_CHARGE', 'ON_BREAK', 'OFF'].map((st) => (
+              <button
+                key={st}
+                onClick={() => handleStatusChange(st)}
+                disabled={statusUpdating}
+                className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${myStatus === st ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+              >
+                {st.replace(/_/g, ' ')}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Additional Stats */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">

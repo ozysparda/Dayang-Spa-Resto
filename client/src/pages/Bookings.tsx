@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Search, Filter } from 'lucide-react';
 import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
+import { api } from '../services/api';
 import toast from 'react-hot-toast';
 
 interface Booking {
@@ -92,14 +93,18 @@ export default function Bookings() {
   // Check therapist availability whenever time or therapist changes
   useEffect(() => {
     if (formData.staffId && formData.startTime && formData.endTime && formData.date) {
+      const controller = new AbortController();
+      let cancelled = false;
+
       const checkAvailability = async () => {
         try {
           const startDateTime = `${formData.date}T${formData.startTime}`;
           const endDateTime = `${formData.date}T${formData.endTime}`;
-          const response = await fetch(`/api/bookings/available-therapists?startTime=${encodeURIComponent(startDateTime)}&endTime=${encodeURIComponent(endDateTime)}`);
-          const data = await response.json();
-          
-          if (response.ok) {
+          const response = await api.get(`/bookings/available-therapists?startTime=${encodeURIComponent(startDateTime)}&endTime=${encodeURIComponent(endDateTime)}`, { signal: controller.signal });
+          if (cancelled) return;
+          const data = response.data;
+
+          if (response.status === 200) {
             const isAvailable = data.some((t: Staff) => t.id === formData.staffId);
             if (!isAvailable && formData.staffId) {
               setAvailabilityError('This therapist has a conflicting booking during the selected time');
@@ -107,12 +112,15 @@ export default function Bookings() {
               setAvailabilityError(null);
             }
           }
-        } catch (error) {
+        } catch (error: any) {
+          const aborted = error && (error.name === 'CanceledError' || error.name === 'AbortError' || error.code === 'ERR_CANCELED');
+          if (cancelled || aborted) return;
           console.error('Availability check failed:', error);
         }
       };
-      
+
       checkAvailability();
+      return () => { cancelled = true; controller.abort(); };
     } else {
       setAvailabilityError(null);
     }

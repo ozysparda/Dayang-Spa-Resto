@@ -17,6 +17,7 @@ import chatRoutes from '../server/src/routes/chat.js';
 import outletRoutes from '../server/src/routes/outlets.js';
 import dashboardRoutes from '../server/src/routes/dashboard.js';
 import settingsRoutes from '../server/src/routes/settings.js';
+import pushRoutes from '../server/src/routes/push.js';
 
 dotenv.config();
 
@@ -50,6 +51,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/outlets', outletRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/push', pushRoutes);
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
