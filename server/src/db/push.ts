@@ -178,6 +178,44 @@ async function pushSchema() {
       )
     `);
 
+        // Treatment transactions (commissions). push.ts only does CREATE IF NOT EXISTS,
+    // so we also ALTER missing columns for pre-existing (legacy) tables whose columns
+    // drifted from schema.ts (e.g. room/notes added in a later session).
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS treatment_transactions (
+        id VARCHAR(255) PRIMARY KEY,
+        booking_id VARCHAR(255),
+        outlet_id VARCHAR(255) REFERENCES outlets(id),
+        therapist_id VARCHAR(255) REFERENCES staff_profiles(id),
+        treatment_id VARCHAR(255) REFERENCES treatments(id),
+        customer_name VARCHAR(255) NOT NULL,
+        start_time TIMESTAMP NOT NULL,
+        end_time TIMESTAMP NOT NULL,
+        price NUMERIC(10, 2) NOT NULL,
+        commission NUMERIC(10, 2) NOT NULL,
+        room TEXT,
+        notes TEXT,
+        recorded_by VARCHAR(255) REFERENCES users(id),
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    // Reconcile columns that may be absent on an older treatment_transactions table.
+    // IF NOT EXISTS makes this idempotent across fresh and pre-existing databases.
+    await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS booking_id VARCHAR(255)`);
+    await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS outlet_id VARCHAR(255)`);
+    await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS therapist_id VARCHAR(255)`);
+    await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS treatment_id VARCHAR(255)`);
+    await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS customer_name VARCHAR(255)`);
+    await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS start_time TIMESTAMP`);
+    await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS end_time TIMESTAMP`);
+    await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS price NUMERIC(10, 2)`);
+    await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS commission NUMERIC(10, 2)`);
+    await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS room TEXT`);
+    await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS notes TEXT`);
+    await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS recorded_by VARCHAR(255)`);
+    await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()`);
+
     console.log('Schema pushed successfully!');
   } catch (error) {
     console.error('Schema push failed:', error);
