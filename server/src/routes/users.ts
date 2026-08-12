@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { db } from '../db/index.js';
-import { users, staffProfiles, activityLogs } from '../db/schema.js';
+import { users, staffProfiles, staffStatus, outlets, activityLogs } from '../db/schema.js';
 import { eq, desc, and, ne } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
@@ -18,12 +18,17 @@ router.get('/', async (req: any, res) => {
       id: users.id,
       staffId: users.staffId,
       username: users.username,
+      name: staffProfiles.name,
       role: users.role,
       isActive: users.isActive,
+      outletId: staffProfiles.outletId,
+      outletName: outlets.name,
       createdAt: users.createdAt,
       updatedAt: users.updatedAt,
     })
       .from(users)
+      .leftJoin(staffProfiles, eq(users.id, staffProfiles.userId))
+      .leftJoin(outlets, eq(staffProfiles.outletId, outlets.id))
       .orderBy(users.username);
 
     res.json(allUsers);
@@ -63,7 +68,7 @@ router.get('/:id', async (req: any, res) => {
 // POST /api/users - Create new user
 router.post('/', async (req: any, res) => {
   try {
-    const { username, password, role, staffId } = req.body;
+    const { username, password, role, staffId, name, email, phone, outletId } = req.body;
 
     if (!username || !password) {
       return res.status(400).json({ message: 'Username and password are required' });
@@ -96,6 +101,27 @@ router.post('/', async (req: any, res) => {
       isActive: true,
     }).returning();
 
+    // Also create a linked staff profile + status so the new user shows up
+    // in staff-facing features (Chat participants, Staff list, Availability,
+    // Dashboard, Attendance, etc.) just like a staff member created via /staff.
+    const targetOutletId = outletId || req.user.outletId;
+    const staffProfileId = uuidv4();
+    await db.insert(staffProfiles).values({
+      id: staffProfileId,
+      userId: newUser[0].id,
+      name: name || username,
+      email: email || null,
+      phone: phone || null,
+      outletId: targetOutletId,
+      isActive: true,
+    });
+    await db.insert(staffStatus).values({
+      id: uuidv4(),
+      staffId: staffProfileId,
+      status: 'OFF',
+      outletId: targetOutletId,
+    });
+
     // Create activity log
     await db.insert(activityLogs).values({
       id: uuidv4(),
@@ -111,9 +137,14 @@ router.post('/', async (req: any, res) => {
       outletId: req.user.outletId,
     });
 
-    // Return user without password
+    // Return user without password, including linked staff profile info
     const { password: _, ...userWithoutPassword } = newUser[0];
-    res.status(201).json(userWithoutPassword);
+    res.status(201).json({
+      ...userWithoutPassword,
+      name: name || username,
+      outletId: targetOutletId,
+      staffProfileCreated: true,
+    });
   } catch (error) {
     console.error('Create user error:', error);
     res.status(500).json({ message: 'Failed to create user' });

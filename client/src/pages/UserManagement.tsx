@@ -8,18 +8,28 @@ interface User {
   id: string;
   staffId: string;
   username: string;
+  name?: string;
   role: string;
   isActive: boolean;
+  outletId?: string;
+  outletName?: string;
   createdAt: string;
+}
+
+interface Outlet {
+  id: string;
+  name: string;
 }
 
 export default function UserManagement() {
   const { user: currentUser } = useAuthStore();
   const { data: usersData, loading, refetch } = useAsyncData<User[]>('/users');
+  const { data: outletsData } = useAsyncData<Outlet[]>('/outlets');
   const createUser = useAsyncMutation();
   const updateUser = useAsyncMutation();
 
   const users = usersData || [];
+  const outlets = outletsData || [];
 
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
@@ -31,6 +41,10 @@ export default function UserManagement() {
     username: '',
     password: '',
     role: 'STAFF',
+    name: '',
+    email: '',
+    phone: '',
+    outletId: '',
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -51,6 +65,10 @@ export default function UserManagement() {
           username: formData.username.trim(),
           password: formData.password,
           role: formData.role,
+          name: formData.name.trim() || formData.username.trim(),
+          email: formData.email.trim(),
+          phone: formData.phone.trim(),
+          outletId: formData.outletId,
         });
         toast.success('User created successfully');
       } else {
@@ -118,6 +136,10 @@ export default function UserManagement() {
       username: user.username,
       password: '',
       role: user.role,
+      name: user.name || '',
+      email: '',
+      phone: '',
+      outletId: user.outletId || '',
     });
     setShowModal(true);
   };
@@ -128,6 +150,10 @@ export default function UserManagement() {
       username: '',
       password: '',
       role: 'STAFF',
+      name: '',
+      email: '',
+      phone: '',
+      outletId: '',
     });
   };
 
@@ -189,24 +215,26 @@ export default function UserManagement() {
           <table className="table">
             <thead>
               <tr>
+                <th>Name</th>
                 <th>Staff ID</th>
                 <th>Username</th>
                 <th>Role</th>
                 <th>Status</th>
-                <th>Created At</th>
+                <th>Outlet</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-8 text-gray-500">
+                  <td colSpan={7} className="text-center py-8 text-gray-500">
                     No users found
                   </td>
                 </tr>
               ) : (
                 filteredUsers.map((user) => (
                   <tr key={user.id}>
+                    <td className="font-medium">{user.name || '\u2014'}</td>
                     <td className="font-mono text-sm">{user.staffId || '\u2014'}</td>
                     <td className="font-medium">
                       {user.username}
@@ -226,7 +254,7 @@ export default function UserManagement() {
                         {user.isActive ? 'Active' : 'Inactive'}
                       </span>
                     </td>
-                    <td>{new Date(user.createdAt).toLocaleDateString()}</td>
+                    <td className="text-sm text-gray-600">{user.outletName || '\u2014'}</td>
                     <td>
                       <div className="flex items-center gap-3">
                         <button
@@ -267,7 +295,7 @@ export default function UserManagement() {
       {/* Add / Edit User Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-1">
               {modalMode === 'add' ? 'Add New User' : 'Edit User'}
             </h2>
@@ -281,6 +309,65 @@ export default function UserManagement() {
               </p>
             )}
             <form onSubmit={handleSubmit} className="space-y-4">
+              {modalMode === 'add' && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Full Name <span className="text-red-500">*</span>
+                      <span className="ml-1 text-xs text-gray-400">(shown in Staff / Chat)</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      placeholder="e.g. Siti Rahma"
+                      className="input-field"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                      <input
+                        type="email"
+                        value={formData.email}
+                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        placeholder="name@example.com"
+                        className="input-field"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                      <input
+                        type="text"
+                        value={formData.phone}
+                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                        placeholder="08xxxxxxxxxx"
+                        className="input-field"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Outlet <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      required
+                      value={formData.outletId}
+                      onChange={(e) => setFormData({ ...formData, outletId: e.target.value })}
+                      className="input-field"
+                    >
+                      <option value="">Select outlet</option>
+                      {outlets.map((o) => (
+                        <option key={o.id} value={o.id}>{o.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Staff ID <span className="text-red-500">*</span>
