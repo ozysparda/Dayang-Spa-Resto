@@ -507,32 +507,38 @@ router.patch('/:id', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
           });
         }
       } else if (updates.status === 'COMPLETED' || updates.status === 'CANCELLED') {
-        // Check if therapist has other active bookings
-        const otherActiveBookings = await db.select({ count: sql<number>`count(*)` })
-          .from(bookings)
+        // Release the therapist when they were IN_TREATMENT on this exact
+        // booking. The old "other active bookings" count was incorrect — it
+        // also counted this just-completed booking (status != 'CANCELLED')
+        // and every future pending/confirmed booking, so the therapist was
+        // permanently stuck IN_TREATMENT. A future booking should not keep a
+        // therapist "busy" right now.
+        const currentStatus = await db.select()
+          .from(staffStatus)
           .where(and(
-            eq(bookings.therapistId, therapistId),
-            eq(bookings.outletId, userOutletId),
-            sql`${bookings.status} != 'CANCELLED'`
-          ));
+            eq(staffStatus.staffId, therapistId),
+            eq(staffStatus.outletId, existingBooking[0].outletId)
+          ))
+          .limit(1);
 
-        if (Number(otherActiveBookings[0]?.count || 0) === 0) {
-          const currentStatus = await db.select().from(staffStatus).where(eq(staffStatus.staffId, therapistId)).limit(1);
-          if (currentStatus.length > 0 && currentStatus[0].status === 'IN_TREATMENT') {
-            const oldStatus = currentStatus[0].status;
-            await db.update(staffStatus)
-              .set({ status: 'FREE', currentTreatmentId: null, updatedAt: new Date() })
-              .where(eq(staffStatus.id, currentStatus[0].id));
-            
-            await db.insert(staffStatusHistory).values({
-              id: uuidv4(),
-              staffId: therapistId,
-              oldStatus,
-              newStatus: 'FREE',
-              changedBy: req.user.id,
-              outletId: existingBooking[0].outletId,
-            });
-          }
+        if (
+          currentStatus.length > 0 &&
+          currentStatus[0].status === 'IN_TREATMENT' &&
+          currentStatus[0].currentTreatmentId === id
+        ) {
+          const oldStatus = currentStatus[0].status;
+          await db.update(staffStatus)
+            .set({ status: 'FREE', currentTreatmentId: null, updatedAt: new Date() })
+            .where(eq(staffStatus.id, currentStatus[0].id));
+
+          await db.insert(staffStatusHistory).values({
+            id: uuidv4(),
+            staffId: therapistId,
+            oldStatus,
+            newStatus: 'FREE',
+            changedBy: req.user.id,
+            outletId: existingBooking[0].outletId,
+          });
         }
       }
     }
@@ -614,32 +620,30 @@ router.delete('/:id', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => 
       .where(eq(bookings.id, id))
       .returning();
 
-    // Reset therapist status to FREE if no other active bookings
+    // Release the therapist only if they were IN_TREATMENT on this exact booking
     const therapistId = existingBooking[0].therapistId;
-    const otherActiveBookings = await db.select({ count: sql<number>`count(*)` })
-      .from(bookings)
-      .where(and(
-        eq(bookings.therapistId, therapistId),
-        eq(bookings.outletId, userOutletId),
-        sql`${bookings.status} != 'CANCELLED'`
-      ));
+    const currentStatus = await db.select()
+      .from(staffStatus)
+      .where(eq(staffStatus.staffId, therapistId))
+      .limit(1);
 
-    if (Number(otherActiveBookings[0]?.count || 0) === 0) {
-      const currentStatus = await db.select().from(staffStatus).where(eq(staffStatus.staffId, therapistId)).limit(1);
-      if (currentStatus.length > 0) {
-        await db.update(staffStatus)
-          .set({ status: 'FREE', updatedAt: new Date() })
-          .where(eq(staffStatus.id, currentStatus[0].id));
-        
-        await db.insert(staffStatusHistory).values({
-          id: uuidv4(),
-          staffId: therapistId,
-          oldStatus: currentStatus[0].status,
-          newStatus: 'FREE',
-          changedBy: req.user.id,
-          outletId: userOutletId,
-        });
-      }
+    if (
+      currentStatus.length > 0 &&
+      currentStatus[0].status === 'IN_TREATMENT' &&
+      currentStatus[0].currentTreatmentId === id
+    ) {
+      await db.update(staffStatus)
+        .set({ status: 'FREE', currentTreatmentId: null, updatedAt: new Date() })
+        .where(eq(staffStatus.id, currentStatus[0].id));
+
+      await db.insert(staffStatusHistory).values({
+        id: uuidv4(),
+        staffId: therapistId,
+        oldStatus: currentStatus[0].status,
+        newStatus: 'FREE',
+        changedBy: req.user.id,
+        outletId: userOutletId,
+      });
     }
 
     // Create activity log

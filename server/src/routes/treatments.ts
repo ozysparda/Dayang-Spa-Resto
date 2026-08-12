@@ -211,17 +211,13 @@ router.post('/input', async (req: any, res) => {
       customerName: customerName || therapist[0].name,
       startTime,
       endTime,
-      duration: effDuration,
       price,
       commission,
       room,
       notes: notes || '',
       outletId: userOutletId,
       recordedBy: req.user.id,
-      recordedAt: new Date(),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    } as any).returning();
+    }).returning();
 
     // In-app notification to therapist
     await db.insert(notifications).values({
@@ -236,10 +232,10 @@ router.post('/input', async (req: any, res) => {
 
     // Push notification
     try {
-      const therapistUser = await db.select({ userId: users.id })
-        .from(users).where(eq(staffProfiles.userId, therapist[0].userId || '')).limit(1);
+      const therapistUser = await db.select({ id: users.id })
+        .from(users).where(eq(users.id, therapist[0].userId || '')).limit(1);
       if (therapistUser.length) {
-        await dispatchPushToUser(therapistUser[0].userId, {
+        await dispatchPushToUser(therapistUser[0].id, {
           title: 'Dayang Spa Resto',
           body: `New treatment: ${treatment[0].name}`,
           data: { type: 'TREATMENT_ASSIGNED', treatmentId, therapistId, startTime, endTime },
@@ -259,12 +255,45 @@ router.post('/input', async (req: any, res) => {
       outletId: userOutletId,
     });
 
-    // If from booking, transition to IN_TREATMENT
-    if (bookingId) {
-      await db.update(bookings).set({ status: 'IN_TREATMENT', updatedAt: new Date() }).where(eq(bookings.id, bookingId));
+    // Update therapist status to IN_TREATMENT (both booking-linked and walk-in
+    // cashier input). If this treatment is tied to a booking, advance the
+    // booking to IN_TREATMENT as well so schedule/dashboard stay in sync.
+    const targetBookingId = bookingId || null;
+    const currentStatus = await db.select()
+      .from(staffStatus)
+      .where(eq(staffStatus.staffId, therapist[0].id))
+      .limit(1);
+    const oldStatus = currentStatus.length > 0 ? currentStatus[0].status : 'OFF';
+
+    if (targetBookingId) {
+      await db.update(bookings)
+        .set({ status: 'IN_TREATMENT', updatedAt: new Date() })
+        .where(eq(bookings.id, targetBookingId));
+    }
+
+    if (currentStatus.length > 0) {
       await db.update(staffStatus)
-        .set({ status: 'IN_TREATMENT', currentTreatmentId: bookingId, updatedAt: new Date() })
-        .where(eq(staffStatus.staffId, therapist[0].id));
+        .set({ status: 'IN_TREATMENT', currentTreatmentId: targetBookingId, updatedAt: new Date() })
+        .where(eq(staffStatus.id, currentStatus[0].id));
+    } else {
+      await db.insert(staffStatus).values({
+        id: uuidv4(),
+        staffId: therapist[0].id,
+        status: 'IN_TREATMENT',
+        currentTreatmentId: targetBookingId,
+        outletId: userOutletId,
+      });
+    }
+
+    if (oldStatus !== 'IN_TREATMENT') {
+      await db.insert(staffStatusHistory).values({
+        id: uuidv4(),
+        staffId: therapist[0].id,
+        oldStatus,
+        newStatus: 'IN_TREATMENT',
+        changedBy: req.user.id,
+        outletId: userOutletId,
+      });
     }
 
     res.status(201).json({ ...newTx[0], treatmentName: treatment[0].name, therapistName: therapist[0].name });
