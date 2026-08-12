@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Calendar, Users, Clock, Activity, UserCheck, MessageSquare, Bell, User } from 'lucide-react';
+import { Calendar, Users, Clock, Activity, UserCheck, MessageSquare, Bell, User, DollarSign } from 'lucide-react';
 import { useParallelFetch, useAsyncMutation } from '../hooks/useAsyncData';
 import { useAuthStore } from '../stores/authStore';
 import { useNavigate } from 'react-router-dom';

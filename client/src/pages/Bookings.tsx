@@ -108,8 +108,6 @@ export default function Bookings() {
   }, [formData.treatmentId, formData.startTime, formData.date, treatments]);
 
   // Phase 16: Form validation
-  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
-
   const validateForm = (): boolean => {
     const errors: Record<string, string> = {};
 
@@ -158,7 +156,6 @@ export default function Bookings() {
       }
     }
 
-    setValidationErrors(errors);
     return Object.keys(errors).length === 0;
   };
 

@@ -28,7 +28,7 @@ export class ErrorBoundary extends Component<
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+  componentDidCatch(error: Error, _errorInfo: React.ErrorInfo) {
     // Phase 17: Never expose stack traces to users - log to console only
     console.error('ErrorBoundary caught an error:', error.message);
   }

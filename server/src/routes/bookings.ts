@@ -349,7 +349,6 @@ router.post('/', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
           message,
           type: 'TREATMENT_ASSIGNED',
           relatedId: newBooking[0].id,
-          relatedType: 'BOOKING',
         });
 
         // Dispatch browser push notification (Phase 6)

@@ -20,7 +20,6 @@ interface Staff {
 export default function Staff() {
   const { user } = useAuthStore();
   const { data: staffData, loading, refetch } = useAsyncData<Staff[]>('/staff');
-  const { data: myProfile } = useAsyncData<Staff>('/staff/me');
   const createStaff = useAsyncMutation();
   const updateStatus = useAsyncMutation();
   const deactivateStaff = useAsyncMutation();
