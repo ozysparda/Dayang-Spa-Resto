@@ -322,59 +322,50 @@ router.post('/', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
       createdBy: req.user.id,
     }).returning();
 
-    // Update therapist status to IN_TREATMENT
-    const existingStatus = await db.select().from(staffStatus).where(eq(staffStatus.staffId, therapistId)).limit(1);
-    if (existingStatus.length > 0) {
-      await db.update(staffStatus)
-        .set({ status: 'IN_TREATMENT', updatedAt: new Date() })
-        .where(eq(staffStatus.id, existingStatus[0].id));
-    } else {
-      await db.insert(staffStatus).values({
-        id: uuidv4(),
-        staffId: therapistId,
-        status: 'IN_TREATMENT',
-        outletId: userOutletId,
-      });
-    }
-
-    // Create status history
-    await db.insert(staffStatusHistory).values({
-      id: uuidv4(),
-      staffId: therapistId,
-      oldStatus: existingStatus.length > 0 ? existingStatus[0].status : null,
-      newStatus: 'IN_TREATMENT',
-      changedBy: req.user.id,
-      outletId: userOutletId,
-    });
+    // Phase 3: Staff availability is NOT automatically changed on booking creation
+    // Staff remains available (FREE, IN_CHARGE, etc.) until booking status changes to IN_TREATMENT
+    // The automatic status updates happen in the PATCH endpoint when booking status changes
 
     // Get therapist and outlet info for notification
     const therapist = await db.select().from(staffProfiles).where(eq(staffProfiles.id, therapistId)).limit(1);
     const outlet = await db.select().from(outlets).where(eq(outlets.id, userOutletId)).limit(1);
 
-    // Create notification for therapist + dispatch browser push
+    // Phase 5: Create enhanced notification for therapist with treatment assignment details
     if (therapist.length > 0) {
       const therapistUser = await db.select().from(users).where(eq(users.id, therapist[0].userId)).limit(1);
-      const title = 'New Booking — Dayang Spa Resto';
-      const message = `${treatment[0].name} • ${startDateTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}–${expectedEndTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} • ${outlet[0]?.name || ''}`;
+      
+      const startTimeStr = startDateTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+      const endTimeStr = expectedEndTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+      
+      const title = '🔔 NEW TREATMENT';
+      const message = `Customer:\n${customerName}\n\nTreatment:\n${treatment[0].name}\n\nTime:\n${startTimeStr} - ${endTimeStr}\n\nOutlet:\n${outlet[0]?.name || ''}\n\nRoom:\n${room}`;
 
       if (therapistUser.length > 0) {
+        // Create in-app notification
         await db.insert(notifications).values({
           id: uuidv4(),
           userId: therapistUser[0].id,
           title,
           message,
-          type: 'BOOKING_CREATED',
+          type: 'TREATMENT_ASSIGNED',
           relatedId: newBooking[0].id,
+          relatedType: 'BOOKING',
         });
 
+        // Dispatch browser push notification (Phase 6)
         await dispatchPushToUser(therapistUser[0].id, {
-          type: 'BOOKING_CREATED',
-          title,
-          body: message,
+          type: 'TREATMENT_ASSIGNED',
+          title: 'Dayang Spa Resto - New Treatment',
+          body: `New treatment assigned to you.\n\n${customerName}\n${treatment[0].name}\n${startTimeStr} - ${endTimeStr}`,
           data: {
             bookingId: newBooking[0].bookingId,
             relatedId: newBooking[0].id,
             route: '/bookings',
+            customer: customerName,
+            treatment: treatment[0].name,
+            time: `${startTimeStr} - ${endTimeStr}`,
+            outlet: outlet[0]?.name || '',
+            room: room,
           },
         });
       }
@@ -484,32 +475,65 @@ router.patch('/:id', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
       .returning();
 
     // Update staff status based on booking status
-    if (updates.status === 'COMPLETED' || updates.status === 'CANCELLED') {
+    if (updates.status) {
       const therapistId = existingBooking[0].therapistId;
-      const otherActiveBookings = await db.select({ count: sql<number>`count(*)` })
-        .from(bookings)
-        .where(and(
-          eq(bookings.therapistId, therapistId),
-          eq(bookings.outletId, userOutletId),
-          sql`${bookings.status} != 'CANCELLED'`
-        ));
-
-      if (Number(otherActiveBookings[0]?.count || 0) === 0) {
+      
+      if (updates.status === 'IN_TREATMENT') {
+        // Set therapist to IN_TREATMENT
         const currentStatus = await db.select().from(staffStatus).where(eq(staffStatus.staffId, therapistId)).limit(1);
-        if (currentStatus.length > 0 && currentStatus[0].status === 'IN_TREATMENT') {
-          const oldStatus = currentStatus[0].status;
+        const oldStatus = currentStatus.length > 0 ? currentStatus[0].status : null;
+        
+        if (currentStatus.length > 0) {
           await db.update(staffStatus)
-            .set({ status: 'FREE', updatedAt: new Date() })
+            .set({ status: 'IN_TREATMENT', currentTreatmentId: id, updatedAt: new Date() })
             .where(eq(staffStatus.id, currentStatus[0].id));
-          
+        } else {
+          await db.insert(staffStatus).values({
+            id: uuidv4(),
+            staffId: therapistId,
+            status: 'IN_TREATMENT',
+            currentTreatmentId: id,
+            outletId: existingBooking[0].outletId,
+          });
+        }
+        
+        if (oldStatus && oldStatus !== 'IN_TREATMENT') {
           await db.insert(staffStatusHistory).values({
             id: uuidv4(),
             staffId: therapistId,
             oldStatus,
-            newStatus: 'FREE',
+            newStatus: 'IN_TREATMENT',
             changedBy: req.user.id,
-            outletId: userOutletId,
+            outletId: existingBooking[0].outletId,
           });
+        }
+      } else if (updates.status === 'COMPLETED' || updates.status === 'CANCELLED') {
+        // Check if therapist has other active bookings
+        const otherActiveBookings = await db.select({ count: sql<number>`count(*)` })
+          .from(bookings)
+          .where(and(
+            eq(bookings.therapistId, therapistId),
+            eq(bookings.outletId, userOutletId),
+            sql`${bookings.status} != 'CANCELLED'`
+          ));
+
+        if (Number(otherActiveBookings[0]?.count || 0) === 0) {
+          const currentStatus = await db.select().from(staffStatus).where(eq(staffStatus.staffId, therapistId)).limit(1);
+          if (currentStatus.length > 0 && currentStatus[0].status === 'IN_TREATMENT') {
+            const oldStatus = currentStatus[0].status;
+            await db.update(staffStatus)
+              .set({ status: 'FREE', currentTreatmentId: null, updatedAt: new Date() })
+              .where(eq(staffStatus.id, currentStatus[0].id));
+            
+            await db.insert(staffStatusHistory).values({
+              id: uuidv4(),
+              staffId: therapistId,
+              oldStatus,
+              newStatus: 'FREE',
+              changedBy: req.user.id,
+              outletId: existingBooking[0].outletId,
+            });
+          }
         }
       }
     }

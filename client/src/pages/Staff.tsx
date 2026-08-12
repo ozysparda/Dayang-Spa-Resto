@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Plus, Search, UserX } from 'lucide-react';
 import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
+import { useAuthStore } from '../stores/authStore';
 import toast from 'react-hot-toast';
 
 interface Staff {
@@ -13,15 +14,20 @@ interface Staff {
   status: string;
   outletName: string;
   isActive: boolean;
+  userId?: string;
 }
 
 export default function Staff() {
+  const { user } = useAuthStore();
   const { data: staffData, loading, refetch } = useAsyncData<Staff[]>('/staff');
+  const { data: myProfile } = useAsyncData<Staff>('/staff/me');
   const createStaff = useAsyncMutation();
   const updateStatus = useAsyncMutation();
   const deactivateStaff = useAsyncMutation();
 
   const staff = staffData || [];
+  const currentUserId = user?.id;
+  const isAdmin = ['ADMIN', 'DEVELOPER'].includes(user?.role || '');
 
   const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -48,14 +54,23 @@ export default function Staff() {
     }
   };
 
-  const handleStatusChange = async (staffId: string, newStatus: string) => {
+  const handleStatusChange = async (staffMember: Staff, newStatus: string) => {
     try {
-      await updateStatus(`/staff/${staffId}/status`, 'PATCH', { status: newStatus });
+      // Phase 2: Staff can only change their own status, Admin can change any
+      if (!isAdmin && staffMember.userId !== currentUserId) {
+        toast.error('You can only change your own status');
+        return;
+      }
+
+      // Use admin endpoint for admin, personal endpoint for staff
+      const endpoint = isAdmin ? `/staff/${staffMember.id}/status` : '/staff/my-status';
+      await updateStatus(endpoint, 'PATCH', { status: newStatus });
       refetch();
       toast.success('Status updated');
     } catch (error: any) {
       console.error('Failed to update status:', error);
-      toast.error('Failed to update status');
+      const message = error.response?.data?.message || 'Failed to update status';
+      toast.error(message);
     }
   };
 
@@ -196,17 +211,33 @@ export default function Staff() {
                     <td>{member.outletName}</td>
                     <td>
                       <div className="flex gap-2">
-                        <select
-                          value={member.status}
-                          onChange={(e) => handleStatusChange(member.id, e.target.value)}
-                          className="text-xs border rounded px-2 py-1"
-                        >
-                          <option value="FREE">FREE</option>
-                          <option value="IN_CHARGE">IN CHARGE</option>
-                          <option value="IN_TREATMENT">IN TREATMENT</option>
-                          <option value="ON_BREAK">ON BREAK</option>
-                          <option value="OFF">OFF</option>
-                        </select>
+                        {isAdmin ? (
+                          <select
+                            value={member.status}
+                            onChange={(e) => handleStatusChange(member, e.target.value)}
+                            className="text-xs border rounded px-2 py-1"
+                          >
+                            <option value="FREE">FREE</option>
+                            <option value="IN_CHARGE">IN CHARGE</option>
+                            <option value="IN_TREATMENT">IN TREATMENT</option>
+                            <option value="ON_BREAK">ON BREAK</option>
+                            <option value="OFF">OFF</option>
+                          </select>
+                        ) : member.userId === currentUserId ? (
+                          <select
+                            value={member.status}
+                            onChange={(e) => handleStatusChange(member, e.target.value)}
+                            className="text-xs border rounded px-2 py-1"
+                          >
+                            <option value="FREE">FREE</option>
+                            <option value="IN_CHARGE">IN CHARGE</option>
+                            <option value="IN_TREATMENT">IN TREATMENT</option>
+                            <option value="ON_BREAK">ON BREAK</option>
+                            <option value="OFF">OFF</option>
+                          </select>
+                        ) : (
+                          <span className="text-xs text-gray-500">-</span>
+                        )}
                         <button
                           onClick={() => handleDeactivate(member.id)}
                           className="text-red-600 hover:text-red-800"
@@ -305,6 +336,7 @@ export default function Staff() {
                 >
                   <option value="STAFF">Staff</option>
                   <option value="ADMIN">Admin</option>
+                  <option value="DEVELOPER">Developer</option>
                 </select>
               </div>
 

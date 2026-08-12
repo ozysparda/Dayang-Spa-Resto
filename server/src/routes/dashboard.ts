@@ -70,6 +70,79 @@ router.get('/stats', async (req: any, res) => {
         eq(staffStatus.status, 'FREE')
       ));
 
+    // Get in-charge staff
+    const inChargeStaff = await db.select({ count: sql<number>`count(*)` })
+      .from(staffStatus)
+      .where(and(
+        eq(staffStatus.outletId, userOutletId),
+        eq(staffStatus.status, 'IN_CHARGE')
+      ));
+
+    // Get busy staff (IN_TREATMENT)
+    const busyStaff = await db.select({ count: sql<number>`count(*)` })
+      .from(staffStatus)
+      .where(and(
+        eq(staffStatus.outletId, userOutletId),
+        eq(staffStatus.status, 'IN_TREATMENT')
+      ));
+
+    // Get off-air staff
+    const offAirStaff = await db.select({ count: sql<number>`count(*)` })
+      .from(staffStatus)
+      .where(and(
+        eq(staffStatus.outletId, userOutletId),
+        eq(staffStatus.status, 'OFF')
+      ));
+
+    // Get today's revenue from completed bookings
+    const todayRevenue = await db.select({ total: sql<string>`COALESCE(SUM(price), 0)` })
+      .from(bookings)
+      .where(and(
+        eq(bookings.outletId, userOutletId),
+        gte(bookings.date, today),
+        lt(bookings.date, tomorrow),
+        eq(bookings.status, 'COMPLETED')
+      ));
+
+    // Get today's commission from treatment transactions
+    const todayCommission = await db.select({ total: sql<string>`COALESCE(SUM(commission), 0)` })
+      .from(treatmentTransactions)
+      .where(and(
+        eq(treatmentTransactions.outletId, userOutletId),
+        gte(treatmentTransactions.createdAt, today),
+        lt(treatmentTransactions.createdAt, tomorrow)
+      ));
+
+    // Get confirmed bookings count
+    const confirmedBookings = await db.select({ count: sql<number>`count(*)` })
+      .from(bookings)
+      .where(and(
+        eq(bookings.outletId, userOutletId),
+        gte(bookings.date, today),
+        lt(bookings.date, tomorrow),
+        eq(bookings.status, 'CONFIRMED')
+      ));
+
+    // Get in-treatment bookings count
+    const inTreatmentBookings = await db.select({ count: sql<number>`count(*)` })
+      .from(bookings)
+      .where(and(
+        eq(bookings.outletId, userOutletId),
+        gte(bookings.date, today),
+        lt(bookings.date, tomorrow),
+        eq(bookings.status, 'IN_TREATMENT')
+      ));
+
+    // Get completed treatments count
+    const completedTreatments = await db.select({ count: sql<number>`count(*)` })
+      .from(bookings)
+      .where(and(
+        eq(bookings.outletId, userOutletId),
+        gte(bookings.date, today),
+        lt(bookings.date, tomorrow),
+        eq(bookings.status, 'COMPLETED')
+      ));
+
     res.json({
       bookingsToday: Number(todayBookings[0]?.count || 0),
       staffOnline: Number(staffOnline[0]?.count || 0),
@@ -77,6 +150,14 @@ router.get('/stats', async (req: any, res) => {
       staffOnBreak: Number(staffOnBreak[0]?.count || 0),
       staffOnTreatment: Number(staffOnTreatment[0]?.count || 0),
       availableTherapists: Number(availableTherapists[0]?.count || 0),
+      inChargeStaff: Number(inChargeStaff[0]?.count || 0),
+      busyStaff: Number(busyStaff[0]?.count || 0),
+      offAirStaff: Number(offAirStaff[0]?.count || 0),
+      todayRevenue: Number(todayRevenue[0]?.total || 0),
+      todayCommission: Number(todayCommission[0]?.total || 0),
+      confirmedBookings: Number(confirmedBookings[0]?.count || 0),
+      inTreatmentBookings: Number(inTreatmentBookings[0]?.count || 0),
+      completedTreatments: Number(completedTreatments[0]?.count || 0),
     });
   } catch (error) {
     console.error('Get dashboard stats error:', error);
@@ -84,16 +165,18 @@ router.get('/stats', async (req: any, res) => {
   }
 });
 
-// GET /api/dashboard/staff-status - Get staff status
+// GET /api/dashboard/staff-status - Get staff status with treatment details
 router.get('/staff-status', async (req: any, res) => {
   try {
     const userOutletId = req.user.outletId;
+    const now = new Date();
 
     const staffList = await db.select({
       id: staffProfiles.id,
       name: staffProfiles.name,
       status: staffStatus.status,
       outletName: outlets.name,
+      currentTreatmentId: staffStatus.currentTreatmentId,
     })
       .from(staffProfiles)
       .leftJoin(staffStatus, eq(staffProfiles.id, staffStatus.staffId))
@@ -101,7 +184,45 @@ router.get('/staff-status', async (req: any, res) => {
       .where(eq(staffProfiles.outletId, userOutletId))
       .orderBy(staffProfiles.name);
 
-    res.json(staffList);
+    // Enrich with current treatment details if IN_TREATMENT
+    const enrichedList = await Promise.all(
+      staffList.map(async (staff) => {
+        if (staff.status === 'IN_TREATMENT' && staff.currentTreatmentId) {
+          const currentBooking = await db.select({
+            id: bookings.id,
+            customerName: bookings.customerName,
+            startTime: bookings.startTime,
+            endTime: bookings.endTime,
+            treatmentName: treatments.name,
+            room: bookings.room,
+          })
+            .from(bookings)
+            .leftJoin(treatments, eq(bookings.treatmentId, treatments.id))
+            .where(eq(bookings.id, staff.currentTreatmentId))
+            .limit(1);
+
+          if (currentBooking.length > 0) {
+            const booking = currentBooking[0];
+            const endTime = new Date(booking.endTime);
+            const remainingMs = endTime.getTime() - now.getTime();
+            const remainingMinutes = Math.max(0, Math.ceil(remainingMs / (1000 * 60)));
+
+            return {
+              ...staff,
+              currentTreatment: booking.treatmentName,
+              currentCustomer: booking.customerName,
+              startTime: booking.startTime,
+              endTime: booking.endTime,
+              remainingMinutes,
+              room: booking.room,
+            };
+          }
+        }
+        return staff;
+      })
+    );
+
+    res.json(enrichedList);
   } catch (error) {
     console.error('Get staff status error:', error);
     res.status(500).json({ message: 'Failed to fetch staff status' });

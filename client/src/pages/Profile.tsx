@@ -5,17 +5,18 @@ import toast from 'react-hot-toast';
 
 interface UserProfile {
   id: string;
+  staffId: string;
   username: string;
+  name: string;
   role: string;
-  staffProfile: {
-    name: string;
-    email: string;
-    phone: string;
-  };
+  outletId: string;
+  outletName: string;
+  email: string;
+  phone: string;
 }
 
 export default function Profile() {
-  const { data: profileData, loading } = useAsyncData<UserProfile>('/auth/me');
+  const { data: profileData, loading, error, refetch } = useAsyncData<UserProfile>('/auth/me');
   const changePassword = useAsyncMutation();
   const profile = profileData;
 
@@ -26,10 +27,20 @@ export default function Profile() {
     confirmPassword: '',
   });
 
+  // Refetch profile when page loads
+  useEffect(() => {
+    refetch();
+  }, [refetch]);
+
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
     if (passwordData.newPassword !== passwordData.confirmPassword) {
       toast.error('New passwords do not match');
+      return;
+    }
+
+    if (passwordData.newPassword.length < 6) {
+      toast.error('Password must be at least 6 characters');
       return;
     }
 
@@ -45,23 +56,32 @@ export default function Profile() {
         confirmPassword: '',
       });
       toast.success('Password changed successfully');
+      // Refetch profile to update any cached data
+      refetch();
     } catch (error: any) {
-      console.error('Failed to change password:', error);
+      const message = error.response?.data?.message || 'Failed to change password';
+      toast.error(message);
     }
   };
 
   if (loading) {
     return (
       <div className="p-8">
-        <div className="text-center">Loading...</div>
+        <div className="text-center">Loading profile...</div>
       </div>
     );
   }
 
-  if (!profile) {
+  if (error || !profile) {
     return (
       <div className="p-8">
-        <div className="text-center text-gray-500">Failed to load profile</div>
+        <div className="text-center text-red-600">
+          <p className="mb-4">Failed to load profile</p>
+          <p className="text-sm text-gray-500 mb-4">{error || 'Please try again'}</p>
+          <button onClick={refetch} className="btn-primary">
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
@@ -79,7 +99,7 @@ export default function Profile() {
               <User className="w-5 h-5 text-gray-400" />
               <div>
                 <p className="text-sm text-gray-600">Name</p>
-                <p className="font-medium text-gray-900">{profile.staffProfile.name}</p>
+                <p className="font-medium text-gray-900">{profile.name}</p>
               </div>
             </div>
 
@@ -87,7 +107,7 @@ export default function Profile() {
               <Mail className="w-5 h-5 text-gray-400" />
               <div>
                 <p className="text-sm text-gray-600">Email</p>
-                <p className="font-medium text-gray-900">{profile.staffProfile.email}</p>
+                <p className="font-medium text-gray-900">{profile.email || 'Not set'}</p>
               </div>
             </div>
 
@@ -95,7 +115,7 @@ export default function Profile() {
               <Phone className="w-5 h-5 text-gray-400" />
               <div>
                 <p className="text-sm text-gray-600">Phone</p>
-                <p className="font-medium text-gray-900">{profile.staffProfile.phone || 'Not set'}</p>
+                <p className="font-medium text-gray-900">{profile.phone || 'Not set'}</p>
               </div>
             </div>
 
@@ -112,6 +132,14 @@ export default function Profile() {
               <div>
                 <p className="text-sm text-gray-600">Role</p>
                 <p className="font-medium text-gray-900">{profile.role}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Lock className="w-5 h-5 text-gray-400" />
+              <div>
+                <p className="text-sm text-gray-600">Outlet</p>
+                <p className="font-medium text-gray-900">{profile.outletName || 'Not assigned'}</p>
               </div>
             </div>
           </div>

@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { DollarSign, Calendar, Filter } from 'lucide-react';
-import { useAsyncData } from '../hooks/useAsyncData';
+import { api } from '../services/api';
+import toast from 'react-hot-toast';
 
 interface CommissionRecord {
   id: string;
@@ -27,16 +28,41 @@ interface CommissionSummary {
 }
 
 export default function Commissions() {
-  const { data, loading, refetch } = useAsyncData<{ records: CommissionRecord[]; summary: CommissionSummary }>(
-    '/commissions'
-  );
+  const [records, setRecords] = useState<CommissionRecord[]>([]);
+  const [summary, setSummary] = useState<CommissionSummary>({ totalRevenue: 0, totalCommission: 0, count: 0 });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const [dateFrom, setDateFrom] = useState(new Date().toISOString().split('T')[0]);
   const [dateTo, setDateTo] = useState(new Date().toISOString().split('T')[0]);
   const [search, setSearch] = useState('');
 
-  const records = data?.records || [];
-  const summary = data?.summary || { totalRevenue: 0, totalCommission: 0, count: 0 };
+  const fetchCommissions = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const token = localStorage.getItem('token');
+      const params = new URLSearchParams();
+      if (dateFrom) params.set('dateFrom', dateFrom);
+      if (dateTo) params.set('dateTo', dateTo);
+      if (search) params.set('search', search);
+      const response = await api.get(`/commissions?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setRecords(response.data.records || []);
+      setSummary(response.data.summary || { totalRevenue: 0, totalCommission: 0, count: 0 });
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || 'Failed to fetch commissions';
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCommissions();
+  }, [dateFrom, dateTo, search]);
 
   const fmtCurrency = (val: number) =>
     new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(val);
@@ -46,17 +72,8 @@ export default function Commissions() {
     return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
-  const applyFilters = () => {
-    const params = new URLSearchParams();
-    if (dateFrom) params.set('dateFrom', dateFrom);
-    if (dateTo) params.set('dateTo', dateTo);
-    if (search) params.set('search', search);
-    refetch();
-  };
-
-  if (loading) {
-    return <div className="p-8 text-center">Loading commissions...</div>;
-  }
+  if (loading) return <div className="p-8 text-center">Loading commissions...</div>;
+  if (error) return <div className="p-8 text-center text-red-600">{error}</div>;
 
   return (
     <div className="p-4 md:p-8">
@@ -120,7 +137,7 @@ export default function Commissions() {
             <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Customer name..." className="input-field" />
           </div>
           <div className="flex items-end">
-            <button onClick={applyFilters} className="btn-primary w-full">Apply Filters</button>
+            <button onClick={fetchCommissions} className="btn-primary w-full">Apply Filters</button>
           </div>
         </div>
       </div>

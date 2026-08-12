@@ -29,7 +29,8 @@ export class ErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('ErrorBoundary caught an error:', error, errorInfo);
+    // Phase 17: Never expose stack traces to users - log to console only
+    console.error('ErrorBoundary caught an error:', error.message);
   }
 
   handleReload = () => {
@@ -43,22 +44,22 @@ export class ErrorBoundary extends Component<
         return <>{this.props.fallback}</>;
       }
 
+      // Phase 17: Never expose error details or stack traces to users
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
           <div className="max-w-md w-full text-center">
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
               <h2 className="text-2xl font-bold text-red-600 mb-4">
-                Something Went Wrong
+                Oops! Something went wrong
               </h2>
               <p className="text-gray-600 mb-6">
-                An unexpected error occurred. This usually happens when
-                navigation happens too quickly. Please try again.
+                We're sorry, but something unexpected happened. Please try refreshing the page.
               </p>
               <button
                 onClick={this.handleReload}
                 className="btn-primary w-full"
               >
-                Reload Page
+                Refresh Page
               </button>
             </div>
           </div>

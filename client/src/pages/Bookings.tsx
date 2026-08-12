@@ -70,19 +70,21 @@ export default function Bookings() {
   };
   const [formData, setFormData] = useState({
     customerName: '',
+    customerPhone: '',
     treatmentId: '',
     staffId: '',
     room: '',
-    date: '',
+    date: new Date().toISOString().split('T')[0],
     startTime: '',
     endTime: '',
     duration: 0,
     price: 0,
     commission: 0,
     notes: '',
+    status: 'PENDING',
   });
 
-  // Auto-calculate end time when treatment or start time changes
+  // Auto-calculate end time, duration, price, commission when treatment or start time changes
   useEffect(() => {
     if (formData.treatmentId && formData.startTime && formData.date) {
       const treatment = treatments.find(t => t.id === formData.treatmentId);
@@ -90,24 +92,75 @@ export default function Bookings() {
         const [hours, minutes] = formData.startTime.split(':').map(Number);
         const startDate = new Date(`${formData.date}T${formData.startTime}`);
         startDate.setHours(hours, minutes, 0, 0);
-        
         const endDate = new Date(startDate);
         endDate.setMinutes(endDate.getMinutes() + treatment.duration);
-        
-        const endHours = endDate.getHours().toString().padStart(2, '0');
-        const endMinutes = endDate.getMinutes().toString().padStart(2, '0');
-        const endTime = `${endHours}:${endMinutes}`;
+        const endTime = `${String(endDate.getHours()).padStart(2, '0')}:${String(endDate.getMinutes()).padStart(2, '0')}`;
         
         setFormData(prev => ({
           ...prev,
           duration: treatment.duration,
           endTime,
-          price: treatment.price,
-          commission: treatment.defaultCommission,
+          price: treatment.price || prev.price,
+          commission: treatment.defaultCommission || prev.commission,
         }));
       }
     }
   }, [formData.treatmentId, formData.startTime, formData.date, treatments]);
+
+  // Phase 16: Form validation
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+
+    if (!formData.customerName.trim()) {
+      errors.customerName = 'Customer name is required';
+    }
+
+    if (!formData.treatmentId) {
+      errors.treatmentId = 'Treatment is required';
+    }
+
+    if (!formData.staffId) {
+      errors.staffId = 'Staff/therapist is required';
+    }
+
+    if (!formData.date) {
+      errors.date = 'Date is required';
+    }
+
+    if (!formData.startTime) {
+      errors.startTime = 'Start time is required';
+    }
+
+    if (!formData.room.trim()) {
+      errors.room = 'Room/location is required';
+    }
+
+    // Validate duration is positive
+    if (formData.duration <= 0) {
+      errors.duration = 'Duration must be positive';
+    }
+
+    // Validate price and commission are numeric
+    if (isNaN(formData.price) || formData.price < 0) {
+      errors.price = 'Price must be a valid positive number';
+    }
+
+    if (isNaN(formData.commission) || formData.commission < 0) {
+      errors.commission = 'Commission must be a valid positive number';
+    }
+
+    // Validate end time is after start time
+    if (formData.startTime && formData.endTime) {
+      if (formData.endTime <= formData.startTime) {
+        errors.endTime = 'End time must be after start time';
+      }
+    }
+
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
   // Check therapist availability whenever time or therapist changes
   useEffect(() => {
@@ -147,16 +200,22 @@ export default function Bookings() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
+    // Phase 16: Validate form before submission
+    if (!validateForm()) {
+      toast.error('Please fix the validation errors before submitting');
+      return;
+    }
+
     if (availabilityError) {
       toast.error('Please resolve the scheduling conflict before creating the booking');
       return;
     }
-    
+
     try {
-      // Server expects therapistId (not staffId) for the therapist field
       const payload = {
         customerName: formData.customerName,
+        customerPhone: formData.customerPhone,
         treatmentId: formData.treatmentId,
         therapistId: formData.staffId,
         room: formData.room,
@@ -167,6 +226,7 @@ export default function Bookings() {
         commission: formData.commission,
         notes: formData.notes,
         duration: formData.duration,
+        status: formData.status,
       };
       await createBooking('/bookings', 'POST', payload);
       setShowModal(false);
@@ -180,19 +240,34 @@ export default function Bookings() {
     }
   };
 
+  const updateBookingStatus = useAsyncMutation();
+  
+  const handleStatusChange = async (bookingId: string, newStatus: string) => {
+    try {
+      await updateBookingStatus(`/bookings/${bookingId}`, 'PATCH', { status: newStatus });
+      refetch();
+      toast.success(`Booking ${newStatus.toLowerCase()}`);
+    } catch (error: any) {
+      console.error('Failed to update booking status:', error);
+      toast.error('Failed to update booking status');
+    }
+  };
+
   const resetForm = () => {
     setFormData({
       customerName: '',
+      customerPhone: '',
       treatmentId: '',
       staffId: '',
       room: '',
-      date: '',
+      date: new Date().toISOString().split('T')[0],
       startTime: '',
       endTime: '',
       duration: 0,
       price: 0,
       commission: 0,
       notes: '',
+      status: 'PENDING',
     });
     setAvailabilityError(null);
   };
@@ -331,18 +406,20 @@ export default function Bookings() {
               <tr>
                 <th>Booking ID</th>
                 <th>Customer</th>
+                <th>Phone</th>
                 <th>Treatment</th>
                 <th>Therapist</th>
                 <th>Date & Time</th>
                 <th>Room</th>
                 <th>Price</th>
                 <th>Status</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredBookings.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-8 text-gray-500">
+                  <td colSpan={10} className="text-center py-8 text-gray-500">
                     No bookings found
                   </td>
                 </tr>
@@ -351,6 +428,7 @@ export default function Bookings() {
                   <tr key={booking.id}>
                     <td className="font-medium">{booking.bookingId}</td>
                     <td>{booking.customerName}</td>
+                    <td className="text-sm text-gray-600">{(booking as any).customerPhone || '-'}</td>
                     <td>{booking.treatmentName}</td>
                     <td>{booking.therapistName}</td>
                     <td>
@@ -368,6 +446,22 @@ export default function Bookings() {
                       <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(booking.status)}`}>
                         {booking.status}
                       </span>
+                    </td>
+                    <td>
+                      <div className="flex gap-1 flex-wrap">
+                        {booking.status === 'PENDING' && (
+                          <button onClick={() => handleStatusChange(booking.id, 'CONFIRMED')} className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200">Confirm</button>
+                        )}
+                        {booking.status === 'CONFIRMED' && (
+                          <button onClick={() => handleStatusChange(booking.id, 'IN_TREATMENT')} className="text-xs px-2 py-1 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200">Start</button>
+                        )}
+                        {(booking.status === 'IN_TREATMENT' || booking.status === 'CONFIRMED') && (
+                          <button onClick={() => handleStatusChange(booking.id, 'COMPLETED')} className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200">Complete</button>
+                        )}
+                        {['PENDING', 'CONFIRMED', 'IN_TREATMENT'].includes(booking.status) && (
+                          <button onClick={() => handleStatusChange(booking.id, 'CANCELLED')} className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200">Cancel</button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -395,6 +489,19 @@ export default function Bookings() {
                   value={formData.customerName}
                   onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
                   className="input-field"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Customer Phone
+                </label>
+                <input
+                  type="tel"
+                  value={formData.customerPhone}
+                  onChange={(e) => setFormData({ ...formData, customerPhone: e.target.value })}
+                  className="input-field"
+                  placeholder="08xxxxxxxxxx"
                 />
               </div>
 

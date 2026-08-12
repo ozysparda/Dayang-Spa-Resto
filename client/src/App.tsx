@@ -6,6 +6,7 @@ import Bookings from './pages/Bookings';
 import Staff from './pages/Staff';
 import Attendance from './pages/Attendance';
 import Treatments from './pages/Treatments';
+import TreatmentInput from './pages/TreatmentInput';
 import Inventory from './pages/Inventory';
 import Chat from './pages/Chat';
 import Announcements from './pages/Announcements';
@@ -61,6 +62,11 @@ function App() {
         <Route path="treatments" element={
           <ProtectedRoute allowedRoles={['ADMIN', 'DEVELOPER']}>
             <Treatments />
+          </ProtectedRoute>
+        } />
+        <Route path="treatment-input" element={
+          <ProtectedRoute allowedRoles={['ADMIN', 'DEVELOPER']}>
+            <TreatmentInput />
           </ProtectedRoute>
         } />
         <Route path="inventory" element={

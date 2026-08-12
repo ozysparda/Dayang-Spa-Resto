@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { db } from '../db/index.js';
-import { treatments, activityLogs, bookings, staffProfiles, outlets } from '../db/schema.js';
+import { treatments, activityLogs, bookings, staffProfiles, outlets, treatmentTransactions, notifications, staffStatus, staffStatusHistory, users } from '../db/schema.js';
 import { eq, desc, and, gte, lte, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
+import { dispatchPushToUser } from '../routes/push.js';
 
 const router = Router();
 
@@ -175,9 +176,105 @@ router.delete('/:id', async (req: any, res) => {
   }
 });
 
-export default router;
+// POST /api/treatments/input - Record completed treatment (cashier input)
+router.post('/input', async (req: any, res) => {
+  try {
+    const userOutletId = req.user.outletId;
+    const { therapistId, customerId, treatmentId, bookingId, startTime, endTime, duration, price, commission, room, notes, customerName } = req.body;
 
-// Staff-specific endpoints (no ADMIN/DEVELOPER restriction)
+    if (!therapistId || !treatmentId || !startTime || !endTime || !price) {
+      return res.status(400).json({ message: 'Missing required fields: therapist, treatment, start/end time, price' });
+    }
+
+    const therapist = await db.select().from(staffProfiles)
+      .where(and(eq(staffProfiles.id, therapistId), eq(staffProfiles.outletId, userOutletId))).limit(1);
+    if (!therapist.length) return res.status(400).json({ message: 'Invalid therapist' });
+
+    const treatment = await db.select().from(treatments)
+      .where(eq(treatments.id, treatmentId)).limit(1);
+    if (!treatment.length) return res.status(400).json({ message: 'Invalid treatment' });
+
+    // Duplicate prevention
+    if (bookingId) {
+      const existing = await db.select().from(treatmentTransactions)
+        .where(eq(treatmentTransactions.bookingId, bookingId)).limit(1);
+      if (existing.length > 0) return res.status(409).json({ message: 'Transaction already recorded for this booking', existing: existing[0] });
+    }
+
+    const txId = uuidv4();
+    const effDuration = duration || treatment[0].duration;
+    const newTx = await db.insert(treatmentTransactions).values({
+      id: txId,
+      bookingId: bookingId || undefined,
+      treatmentId,
+      therapistId,
+      customerName: customerName || therapist[0].name,
+      startTime,
+      endTime,
+      duration: effDuration,
+      price,
+      commission,
+      room,
+      notes: notes || '',
+      outletId: userOutletId,
+      recordedBy: req.user.id,
+      recordedAt: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as any).returning();
+
+    // In-app notification to therapist
+    await db.insert(notifications).values({
+      id: uuidv4(),
+      userId: therapist[0].userId || '',
+      title: 'New Treatment',
+      message: `Treatment: ${treatment[0].name} (${effDuration} min) - ${room || ''}`,
+      type: 'TREATMENT_ASSIGNED',
+      isRead: false,
+      createdAt: new Date(),
+    });
+
+    // Push notification
+    try {
+      const therapistUser = await db.select({ userId: users.id })
+        .from(users).where(eq(staffProfiles.userId, therapist[0].userId || '')).limit(1);
+      if (therapistUser.length) {
+        await dispatchPushToUser(therapistUser[0].userId, {
+          title: 'Dayang Spa Resto',
+          body: `New treatment: ${treatment[0].name}`,
+          data: { type: 'TREATMENT_ASSIGNED', treatmentId, therapistId, startTime, endTime },
+        });
+      }
+    } catch (e) { console.warn('Push failed:', e); }
+
+    // Activity log
+    await db.insert(activityLogs).values({
+      id: uuidv4(),
+      userId: req.user.id,
+      userName: req.user.username,
+      action: 'TREATMENT_RECORDED',
+      entityType: 'TREATMENT_TRANSACTION',
+      entityId: txId,
+      details: { therapistName: therapist[0].name, treatmentName: treatment[0].name, price, commission, startTime, endTime, room },
+      outletId: userOutletId,
+    });
+
+    // If from booking, transition to IN_TREATMENT
+    if (bookingId) {
+      await db.update(bookings).set({ status: 'IN_TREATMENT', updatedAt: new Date() }).where(eq(bookings.id, bookingId));
+      await db.update(staffStatus)
+        .set({ status: 'IN_TREATMENT', currentTreatmentId: bookingId, updatedAt: new Date() })
+        .where(eq(staffStatus.staffId, therapist[0].id));
+    }
+
+    res.status(201).json({ ...newTx[0], treatmentName: treatment[0].name, therapistName: therapist[0].name });
+  } catch (error) {
+    console.error('Treatment input error:', error);
+    res.status(500).json({ message: 'Failed to record treatment' });
+  }
+});
+
+// Staff-specific endpoints
 router.use(authenticate);
 
 // GET /api/treatments/my-history - Get current user's treatment history
@@ -232,9 +329,68 @@ router.get('/my-history', async (req: any, res) => {
       .where(and(...conditions))
       .orderBy(desc(bookings.date), desc(bookings.startTime));
 
-    res.json(history);
+        res.json(history);
   } catch (error) {
     console.error('Get treatment history error:', error);
     res.status(500).json({ message: 'Failed to fetch treatment history' });
   }
 });
+
+// GET /api/treatments/my-commissions - Staff see their own commissions
+router.get('/my-commissions', async (req: any, res) => {
+  try {
+    const userOutletId = req.user.outletId;
+    const staffProfile = await db.select().from(staffProfiles)
+      .where(eq(staffProfiles.userId, req.user.id)).limit(1);
+    if (!staffProfile.length) return res.status(404).json({ message: 'Staff profile not found' });
+
+    const { startDate, endDate } = req.query;
+    let conditions = [
+      eq(treatmentTransactions.therapistId, staffProfile[0].id),
+      eq(treatmentTransactions.outletId, userOutletId),
+    ];
+    if (startDate) {
+      const start = new Date(startDate as string); start.setHours(0, 0, 0, 0);
+      conditions.push(gte(treatmentTransactions.createdAt, start));
+    }
+    if (endDate) {
+      const end = new Date(endDate as string); end.setHours(23, 59, 59, 999);
+      conditions.push(lte(treatmentTransactions.createdAt, end));
+    }
+
+    const records = await db.select({
+      id: treatmentTransactions.id,
+      customerName: treatmentTransactions.customerName,
+      treatmentName: treatments.name,
+      startTime: treatmentTransactions.startTime,
+      endTime: treatmentTransactions.endTime,
+      price: treatmentTransactions.price,
+      commission: treatmentTransactions.commission,
+      room: treatmentTransactions.room,
+      createdAt: treatmentTransactions.createdAt,
+    }).from(treatmentTransactions)
+      .leftJoin(treatments, eq(treatmentTransactions.treatmentId, treatments.id))
+      .where(and(...conditions))
+      .orderBy(desc(treatmentTransactions.createdAt));
+
+    const summaryResult = await db.select({
+      totalRevenue: sql<number>`sum(${treatmentTransactions.price})`,
+      totalCommission: sql<number>`sum(${treatmentTransactions.commission})`,
+      count: sql<number>`count(*)`,
+    }).from(treatmentTransactions).where(and(...conditions));
+
+    res.json({
+      records,
+      summary: {
+        totalRevenue: Number(summaryResult[0]?.totalRevenue || 0),
+        totalCommission: Number(summaryResult[0]?.totalCommission || 0),
+        count: Number(summaryResult[0]?.count || 0),
+      },
+    });
+  } catch (error) {
+    console.error('Get my commissions error:', error);
+    res.status(500).json({ message: 'Failed to fetch commissions' });
+  }
+});
+
+export default router;

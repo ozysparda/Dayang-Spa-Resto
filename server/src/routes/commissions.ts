@@ -9,12 +9,22 @@ const router = Router();
 // All routes require authentication
 router.use(authenticate);
 
+// Helper: STAFF sees only their own transactions
+const getTherapistStaffProfile = async (req: any) => {
+  if (['ADMIN', 'DEVELOPER'].includes(req.user.role)) return null; // not needed
+  const sp = await db.select().from(staffProfiles)
+    .where(eq(staffProfiles.userId, req.user.id)).limit(1);
+  return sp[0];
+};
+
 // GET /api/commissions - Get commission records with filters
-router.get('/', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
+router.get('/', async (req: any, res) => {
   try {
     const userOutletId = req.user.outletId;
     const userRole = req.user.role;
     const isDev = userRole === 'DEVELOPER';
+    const isAdmin = ['ADMIN', 'DEVELOPER'].includes(userRole);
+    const isStaff = userRole === 'STAFF';
 
     const staffId = req.query.staffId as string | undefined;
     const treatmentId = req.query.treatmentId as string | undefined;
@@ -25,8 +35,17 @@ router.get('/', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
 
     const conditions = [eq(treatmentTransactions.outletId, userOutletId)];
 
-    if (!isDev && staffId) {
-      conditions.push(eq(treatmentTransactions.therapistId, staffId));
+    // STAFF can only see their own commissions
+    if (isStaff) {
+      const sp = await db.select().from(staffProfiles)
+        .where(eq(staffProfiles.userId, req.user.id)).limit(1);
+      if (sp.length > 0) {
+        conditions.push(eq(treatmentTransactions.therapistId, sp[0].id));
+      } else {
+        return res.json({ records: [], summary: { totalRevenue: 0, totalCommission: 0, count: 0 } });
+      }
+    } else if (!isDev && staffId) {
+      conditions.push(eq(treatmentTransactions.therapistId, staffId as string));
     }
     if (treatmentId) {
       conditions.push(eq(treatmentTransactions.treatmentId, treatmentId));

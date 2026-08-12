@@ -83,9 +83,31 @@ router.patch('/my-status', async (req: any, res) => {
 
     const oldStatus = currentStatus[0].status;
 
+    // Validate status transitions
+    const validTransitions: Record<string, string[]> = {
+      'FREE': ['IN_CHARGE', 'ON_BREAK', 'OFF', 'IN_TREATMENT'],
+      'IN_CHARGE': ['FREE', 'ON_BREAK', 'OFF', 'IN_TREATMENT'],
+      'IN_TREATMENT': ['FREE', 'ON_BREAK', 'OFF'],
+      'ON_BREAK': ['FREE', 'IN_CHARGE', 'OFF', 'IN_TREATMENT'],
+      'OFF': ['FREE', 'IN_CHARGE'],
+    };
+
+    const allowedTransitions = validTransitions[oldStatus] || [];
+    if (!allowedTransitions.includes(status)) {
+      return res.status(400).json({
+        message: `Invalid status transition from ${oldStatus} to ${status}. Allowed transitions: ${allowedTransitions.join(', ')}`
+      });
+    }
+
+    // If moving to FREE, clear current treatment
+    const updateData: any = { status, updatedAt: new Date() };
+    if (status === 'FREE') {
+      updateData.currentTreatmentId = null;
+    }
+
     // Update status
     const updatedStatus = await db.update(staffStatus)
-      .set({ status, updatedAt: new Date() })
+      .set(updateData)
       .where(eq(staffStatus.staffId, staffId))
       .returning();
 
@@ -395,9 +417,31 @@ router.patch('/:id/status', async (req: any, res) => {
 
     const oldStatus = currentStatus[0].status;
 
+    // Validate status transitions
+    const validTransitions: Record<string, string[]> = {
+      'FREE': ['IN_CHARGE', 'ON_BREAK', 'OFF', 'IN_TREATMENT'],
+      'IN_CHARGE': ['FREE', 'ON_BREAK', 'OFF', 'IN_TREATMENT'],
+      'IN_TREATMENT': ['FREE', 'ON_BREAK', 'OFF'],
+      'ON_BREAK': ['FREE', 'IN_CHARGE', 'OFF', 'IN_TREATMENT'],
+      'OFF': ['FREE', 'IN_CHARGE'],
+    };
+
+    const allowedTransitions = validTransitions[oldStatus] || [];
+    if (!allowedTransitions.includes(status)) {
+      return res.status(400).json({
+        message: `Invalid status transition from ${oldStatus} to ${status}. Allowed transitions: ${allowedTransitions.join(', ')}`
+      });
+    }
+
+    // If moving to FREE, clear current treatment
+    const updateData: any = { status, updatedAt: new Date() };
+    if (status === 'FREE') {
+      updateData.currentTreatmentId = null;
+    }
+
     // Update status
     const updatedStatus = await db.update(staffStatus)
-      .set({ status, updatedAt: new Date() })
+      .set(updateData)
       .where(eq(staffStatus.staffId, id))
       .returning();
 

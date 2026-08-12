@@ -19,7 +19,8 @@ import {
   UserPlus,
   MapPin,
   X,
-  DollarSign
+  DollarSign,
+  ClipboardList
 } from 'lucide-react';
 
 const staffLinks = [
@@ -36,6 +37,7 @@ const adminLinks = [
   { to: '/staff', icon: Users, label: 'Staff' },
   { to: '/attendance', icon: Clock, label: 'Attendance' },
   { to: '/treatments', icon: FlaskConical, label: 'Treatments' },
+  { to: '/treatment-input', icon: ClipboardList, label: 'Treatment Input' },
   { to: '/inventory', icon: Package, label: 'Inventory' },
   { to: '/commissions', icon: DollarSign, label: 'Commissions' },
   { to: '/chat', icon: MessageSquare, label: 'Chat' },

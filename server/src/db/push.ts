@@ -214,7 +214,32 @@ async function pushSchema() {
     await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS room TEXT`);
     await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS notes TEXT`);
     await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS recorded_by VARCHAR(255)`);
-        await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()`);
+    await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()`);
+    // Additional columns present in schema.ts that older databases may be missing
+    await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS customer_id VARCHAR(255)`);
+    await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(255)`);
+    await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS duration INTEGER`);
+    await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS recorded_at TIMESTAMP DEFAULT NOW()`);
+    await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
+
+    // Reconcile bookings table columns that may be missing
+    await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(255)`);
+    await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS duration INTEGER`);
+    await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS room TEXT`);
+    await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS created_by VARCHAR(255)`);
+    await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS outlet_id VARCHAR(255)`);
+
+    // Reconcile announcements table columns
+    await db.execute(sql`ALTER TABLE announcements ADD COLUMN IF NOT EXISTS target_outlet_id VARCHAR(255)`);
+    await db.execute(sql`ALTER TABLE announcements ADD COLUMN IF NOT EXISTS priority VARCHAR(50) DEFAULT 'NORMAL'`);
+    await db.execute(sql`ALTER TABLE announcements ADD COLUMN IF NOT EXISTS expiration_date TIMESTAMP`);
+    await db.execute(sql`ALTER TABLE announcements ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true`);
+
+    // Reconcile chat_messages table columns
+    await db.execute(sql`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT false`);
+
+    // Reconcile staff_status table columns
+    await db.execute(sql`ALTER TABLE staff_status ADD COLUMN IF NOT EXISTS in_charge_since TIMESTAMP`);
 
     // =========================================================================
     // Tables defined in schema.ts but NEVER created by the original push.ts.

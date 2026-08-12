@@ -12,6 +12,14 @@ interface DashboardStats {
   staffOnBreak: number;
   staffOnTreatment: number;
   availableTherapists: number;
+  inChargeStaff: number;
+  busyStaff: number;
+  offAirStaff: number;
+  todayRevenue: number;
+  todayCommission: number;
+  confirmedBookings: number;
+  inTreatmentBookings: number;
+  completedTreatments: number;
 }
 
 interface StaffStatus {
@@ -19,6 +27,12 @@ interface StaffStatus {
   name: string;
   status: string;
   outletName: string;
+  currentTreatment?: string;
+  currentCustomer?: string;
+  startTime?: string;
+  endTime?: string;
+  remainingMinutes?: number;
+  room?: string;
 }
 
 interface NextBooking {
@@ -75,6 +89,7 @@ export default function Dashboard() {
   const updateStatus = useAsyncMutation();
   const [myStatus, setMyStatus] = useState('');
   const [statusUpdating, setStatusUpdating] = useState(false);
+  const [now, setNow] = useState(new Date());
 
   const todayStr = new Date().toISOString().split('T')[0];
 
@@ -87,13 +102,23 @@ export default function Dashboard() {
     ...(user?.role === 'STAFF' ? [{ key: 'myTodayBookings', url: '/bookings?date=' + todayStr }] : []),
   ]);
 
+  // Auto-refresh data every 30 seconds for live updates
   useEffect(() => {
     const interval = setInterval(() => {
       refetch();
-    }, 30000); // Refresh every 30 seconds
+      setNow(new Date());
+    }, 30000);
 
     return () => clearInterval(interval);
   }, [refetch]);
+
+  // Update remaining time every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNow(new Date());
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Sync local status from the fetched staff profile
   useEffect(() => {
@@ -121,6 +146,14 @@ export default function Dashboard() {
     staffOnBreak: 0,
     staffOnTreatment: 0,
     availableTherapists: 0,
+    inChargeStaff: 0,
+    busyStaff: 0,
+    offAirStaff: 0,
+    todayRevenue: 0,
+    todayCommission: 0,
+    confirmedBookings: 0,
+    inTreatmentBookings: 0,
+    completedTreatments: 0,
   };
   const staffStatus = data?.staffStatus || [];
   const nextBookings = data?.nextBookings || [];
@@ -337,6 +370,87 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+        <div className="card">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-yellow-100 rounded-lg">
+              <UserCheck className="w-6 h-6 text-yellow-600" />
+            </div>
+            <div>
+              <p className="text-sm text-gray-600">In-Charge</p>
+              <p className="text-2xl font-bold text-gray-900">{stats.inChargeStaff}</p>
+            </div>
+          </div>
+        </div>
+        <div className="card">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-red-100 rounded-lg">
+              <Clock className="w-6 h-6 text-red-600" />
+            </div>
+            <div>
+              <p className="text-sm text-gray-600">Busy</p>
+              <p className="text-2xl font-bold text-gray-900">{stats.busyStaff}</p>
+            </div>
+          </div>
+        </div>
+        <div className="card">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-gray-100 rounded-lg">
+              <Users className="w-6 h-6 text-gray-600" />
+            </div>
+            <div>
+              <p className="text-sm text-gray-600">Off-Air</p>
+              <p className="text-2xl font-bold text-gray-900">{stats.offAirStaff}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div className="card">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">Confirmed</p>
+              <p className="text-2xl font-bold text-blue-600">{stats.confirmedBookings}</p>
+            </div>
+            <Calendar className="w-8 h-8 text-blue-600 opacity-50" />
+          </div>
+        </div>
+        <div className="card">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">In-Treatment</p>
+              <p className="text-2xl font-bold text-red-600">{stats.inTreatmentBookings}</p>
+            </div>
+            <Clock className="w-8 h-8 text-red-600 opacity-50" />
+          </div>
+        </div>
+        <div className="card">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">Completed</p>
+              <p className="text-2xl font-bold text-green-600">{stats.completedTreatments}</p>
+            </div>
+            <Activity className="w-8 h-8 text-green-600 opacity-50" />
+          </div>
+        </div>
+        <div className="card">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">Today's Revenue</p>
+              <p className="text-2xl font-bold text-green-600">Rp {stats.todayRevenue.toLocaleString('id-ID')}</p>
+            </div>
+            <DollarSign className="w-8 h-8 text-green-600 opacity-50" />
+          </div>
+        </div>
+        <div className="card">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">Today's Commission</p>
+              <p className="text-2xl font-bold text-purple-600">Rp {stats.todayCommission.toLocaleString('id-ID')}</p>
+            </div>
+            <DollarSign className="w-8 h-8 text-purple-600 opacity-50" />
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -345,21 +459,60 @@ export default function Dashboard() {
             <UserCheck className="w-5 h-5" />
             Staff Availability
           </h2>
-          <div className="space-y-2">
+          <div className="space-y-3">
             {staffStatus.length === 0 ? (
               <p className="text-gray-500 text-sm">No staff data available</p>
             ) : (
-              staffStatus.map((staff) => (
-                <div key={staff.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <div>
-                    <p className="font-medium text-gray-900">{staff.name}</p>
-                    <p className="text-xs text-gray-500">{staff.outletName}</p>
+              staffStatus.map((staff) => {
+                const statusEmoji = {
+                  'FREE': '🟢',
+                  'IN_CHARGE': '🟡',
+                  'IN_TREATMENT': '🔴',
+                  'ON_BREAK': '☕',
+                  'OFF': '⚫'
+                }[staff.status] || '⚪';
+
+                return (
+                  <div key={staff.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1">
+                        <p className="font-semibold text-gray-900">{staff.name}</p>
+                        <p className="text-xs text-gray-500">{staff.outletName}</p>
+                      </div>
+                      <span className={"px-3 py-1 rounded-full text-xs font-medium border " + getStatusColor(staff.status)}>
+                        {statusEmoji} {getStatusLabel(staff.status)}
+                      </span>
+                    </div>
+
+                    {staff.status === 'IN_TREATMENT' && staff.currentTreatment && (
+                      <div className="mt-3 pt-3 border-t border-gray-200 space-y-1">
+                        <p className="text-sm font-medium text-gray-700">{staff.currentTreatment}</p>
+                        {staff.currentCustomer && (
+                          <p className="text-xs text-gray-600">Customer: {staff.currentCustomer}</p>
+                        )}
+                        {staff.startTime && staff.endTime && (
+                          <p className="text-xs text-gray-600">
+                            Time: {formatTime(staff.startTime)} - {formatTime(staff.endTime)}
+                          </p>
+                        )}
+                        {staff.room && (
+                          <p className="text-xs text-gray-600">Room: {staff.room}</p>
+                        )}
+                        {staff.endTime && (
+                          <p className="text-xs font-medium text-red-600 mt-1">
+                            {(() => {
+                              const end = new Date(staff.endTime);
+                              const diff = end.getTime() - now.getTime();
+                              const mins = Math.max(0, Math.ceil(diff / (1000 * 60)));
+                              return `${mins} minute${mins !== 1 ? 's' : ''} remaining`;
+                            })()}
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <span className={"px-3 py-1 rounded-full text-xs font-medium border " + getStatusColor(staff.status)}>
-                    {getStatusLabel(staff.status)}
-                  </span>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
