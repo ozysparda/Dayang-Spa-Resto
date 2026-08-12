@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { db } from '../db/index.js';
 import { users, staffProfiles, activityLogs } from '../db/schema.js';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and, ne } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -75,6 +75,14 @@ router.post('/', async (req: any, res) => {
       return res.status(400).json({ message: 'Username already exists' });
     }
 
+    // Check if staffId already exists (staffId is the login credential)
+    if (staffId) {
+      const existingStaffId = await db.select().from(users).where(eq(users.staffId, staffId)).limit(1);
+      if (existingStaffId.length > 0) {
+        return res.status(400).json({ message: 'Staff ID already exists' });
+      }
+    }
+
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -124,6 +132,36 @@ router.patch('/:id', async (req: any, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
+    // Protect against clearing a user's own DEVELOPER role / deactivating self
+    if (id === req.user.id) {
+      if (updates.isActive === false) {
+        return res.status(400).json({ message: 'You cannot deactivate your own account' });
+      }
+      if (updates.role && updates.role !== 'DEVELOPER') {
+        return res.status(400).json({ message: 'You cannot remove your own Developer role' });
+      }
+    }
+
+    // Check username uniqueness if being changed
+    if (updates.username) {
+      const dupUsername = await db.select().from(users)
+        .where(and(eq(users.username, updates.username), ne(users.id, id)))
+        .limit(1);
+      if (dupUsername.length > 0) {
+        return res.status(400).json({ message: 'Username already exists' });
+      }
+    }
+
+    // Check staffId uniqueness if being changed
+    if (updates.staffId) {
+      const dupStaffId = await db.select().from(users)
+        .where(and(eq(users.staffId, updates.staffId), ne(users.id, id)))
+        .limit(1);
+      if (dupStaffId.length > 0) {
+        return res.status(400).json({ message: 'Staff ID already exists' });
+      }
+    }
+
     // If password is being updated, hash it
     if (updates.password) {
       updates.password = await bcrypt.hash(updates.password, 10);
@@ -134,6 +172,13 @@ router.patch('/:id', async (req: any, res) => {
       .set({ ...updates, updatedAt: new Date() })
       .where(eq(users.id, id))
       .returning();
+
+    // Sync staff profile active state if provided (for activate/reactivate)
+    if (typeof updates.isActive === 'boolean') {
+      await db.update(staffProfiles)
+        .set({ isActive: updates.isActive, updatedAt: new Date() })
+        .where(eq(staffProfiles.userId, id));
+    }
 
     // Create activity log
     await db.insert(activityLogs).values({

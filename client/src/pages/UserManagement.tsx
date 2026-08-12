@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { Plus, Search, UserX } from 'lucide-react';
+import { Plus, Search, UserX, UserCheck, Pencil, KeyRound } from 'lucide-react';
 import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
+import { useAuthStore } from '../stores/authStore';
 import toast from 'react-hot-toast';
 
 interface User {
   id: string;
+  staffId: string;
   username: string;
   role: string;
   isActive: boolean;
@@ -12,15 +14,20 @@ interface User {
 }
 
 export default function UserManagement() {
+  const { user: currentUser } = useAuthStore();
   const { data: usersData, loading, refetch } = useAsyncData<User[]>('/users');
   const createUser = useAsyncMutation();
-  const deactivateUser = useAsyncMutation();
+  const updateUser = useAsyncMutation();
 
   const users = usersData || [];
 
   const [showModal, setShowModal] = useState(false);
+  const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
+  const [editingUser, setEditingUser] = useState<User | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({
+    staffId: '',
     username: '',
     password: '',
     role: 'STAFF',
@@ -28,32 +35,96 @@ export default function UserManagement() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSaving(true);
+
+    // Validate password length for add mode
+    if (modalMode === 'add' && formData.password.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      setSaving(false);
+      return;
+    }
+
     try {
-      await createUser('/users', 'POST', formData);
+      if (modalMode === 'add') {
+        await createUser('/users', 'POST', {
+          staffId: formData.staffId.trim(),
+          username: formData.username.trim(),
+          password: formData.password,
+          role: formData.role,
+        });
+        toast.success('User created successfully');
+      } else {
+        if (!editingUser) return;
+        const payload: any = {
+          staffId: formData.staffId.trim(),
+          username: formData.username.trim(),
+          role: formData.role,
+        };
+        // Only send password if the developer wants to reset it
+        if (formData.password) {
+          payload.password = formData.password;
+        }
+        await updateUser(`/users/${editingUser.id}`, 'PATCH', payload);
+        toast.success('User updated successfully');
+      }
       setShowModal(false);
       refetch();
       resetForm();
-      toast.success('User created successfully');
-    } catch (error: any) {
-      console.error('Failed to create user:', error);
-      toast.error('Failed to create user');
+    } catch (error) {
+      // Toast already shown by useAsyncMutation
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleDeactivate = async (id: string) => {
-    if (!confirm('Are you sure you want to deactivate this user?')) return;
+    if (id === currentUser?.id) {
+      toast.error('You cannot deactivate your own account');
+      return;
+    }
+    const user = users.find(u => u.id === id);
+    if (!confirm(`Are you sure you want to deactivate ${user?.username || 'this user'}? They will no longer be able to log in.`)) return;
     try {
-      await deactivateUser(`/users/${id}`, 'DELETE');
+      await updateUser(`/users/${id}`, 'DELETE');
       refetch();
       toast.success('User deactivated successfully');
-    } catch (error: any) {
-      console.error('Failed to deactivate user:', error);
-      toast.error('Failed to deactivate user');
+    } catch (error) {
+      // Toast already shown by useAsyncMutation
     }
+  };
+
+  const handleActivate = async (id: string) => {
+    try {
+      await updateUser(`/users/${id}`, 'PATCH', { isActive: true });
+      refetch();
+      toast.success('User activated successfully');
+    } catch (error) {
+      // Toast already shown by useAsyncMutation
+    }
+  };
+
+  const openAddModal = () => {
+    setModalMode('add');
+    setEditingUser(null);
+    resetForm();
+    setShowModal(true);
+  };
+
+  const openEditModal = (user: User) => {
+    setModalMode('edit');
+    setEditingUser(user);
+    setFormData({
+      staffId: user.staffId || '',
+      username: user.username,
+      password: '',
+      role: user.role,
+    });
+    setShowModal(true);
   };
 
   const resetForm = () => {
     setFormData({
+      staffId: '',
       username: '',
       password: '',
       role: 'STAFF',
@@ -90,10 +161,7 @@ export default function UserManagement() {
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold text-gray-900">User Management</h1>
         <button
-          onClick={() => {
-            resetForm();
-            setShowModal(true);
-          }}
+          onClick={openAddModal}
           className="btn-primary flex items-center gap-2"
         >
           <Plus className="w-5 h-5" />
@@ -121,6 +189,7 @@ export default function UserManagement() {
           <table className="table">
             <thead>
               <tr>
+                <th>Staff ID</th>
                 <th>Username</th>
                 <th>Role</th>
                 <th>Status</th>
@@ -131,14 +200,20 @@ export default function UserManagement() {
             <tbody>
               {filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-8 text-gray-500">
+                  <td colSpan={6} className="text-center py-8 text-gray-500">
                     No users found
                   </td>
                 </tr>
               ) : (
                 filteredUsers.map((user) => (
                   <tr key={user.id}>
-                    <td className="font-medium">{user.username}</td>
+                    <td className="font-mono text-sm">{user.staffId || '\u2014'}</td>
+                    <td className="font-medium">
+                      {user.username}
+                      {user.id === currentUser?.id && (
+                        <span className="ml-2 text-xs text-gray-400">(you)</span>
+                      )}
+                    </td>
                     <td>
                       <span className={`px-3 py-1 rounded-full text-xs font-medium ${getRoleColor(user.role)}`}>
                         {user.role}
@@ -153,13 +228,33 @@ export default function UserManagement() {
                     </td>
                     <td>{new Date(user.createdAt).toLocaleDateString()}</td>
                     <td>
-                      <button
-                        onClick={() => handleDeactivate(user.id)}
-                        className="text-red-600 hover:text-red-800"
-                        title="Deactivate"
-                      >
-                        <UserX className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => openEditModal(user)}
+                          className="text-blue-600 hover:text-blue-800"
+                          title="Edit / Reset password"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        {user.isActive ? (
+                          <button
+                            onClick={() => handleDeactivate(user.id)}
+                            className="text-red-600 hover:text-red-800 disabled:opacity-30"
+                            title="Deactivate"
+                            disabled={user.id === currentUser?.id}
+                          >
+                            <UserX className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleActivate(user.id)}
+                            className="text-green-600 hover:text-green-800"
+                            title="Activate"
+                          >
+                            <UserCheck className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -169,15 +264,41 @@ export default function UserManagement() {
         </div>
       </div>
 
-      {/* Add User Modal */}
+      {/* Add / Edit User Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
-            <h2 className="text-2xl font-bold mb-4">Add New User</h2>
+            <h2 className="text-2xl font-bold mb-1">
+              {modalMode === 'add' ? 'Add New User' : 'Edit User'}
+            </h2>
+            {modalMode === 'add' ? (
+              <p className="text-sm text-gray-500 mb-4">
+                Create a login account for a user. They will sign in with the Staff ID.
+              </p>
+            ) : (
+              <p className="text-sm text-gray-500 mb-4">
+                Editing {editingUser?.username}. Leave password blank to keep the current one.
+              </p>
+            )}
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Username
+                  Staff ID <span className="text-red-500">*</span>
+                  <span className="ml-1 text-xs text-gray-400">(login credential)</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.staffId}
+                  onChange={(e) => setFormData({ ...formData, staffId: e.target.value })}
+                  placeholder="e.g. DAY001"
+                  className="input-field font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Username <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -190,13 +311,20 @@ export default function UserManagement() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Password
+                  {modalMode === 'add' ? (
+                    <>Password <span className="text-red-500">*</span></>
+                  ) : (
+                    <span className="flex items-center gap-1">
+                      <KeyRound className="w-4 h-4" /> Reset Password (optional)
+                    </span>
+                  )}
                 </label>
                 <input
                   type="password"
-                  required
+                  required={modalMode === 'add'}
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  placeholder={modalMode === 'add' ? 'At least 6 characters' : 'Leave blank to keep current password'}
                   className="input-field"
                 />
               </div>
@@ -217,8 +345,8 @@ export default function UserManagement() {
               </div>
 
               <div className="flex gap-3 pt-4">
-                <button type="submit" className="btn-primary flex-1">
-                  Add User
+                <button type="submit" disabled={saving} className="btn-primary flex-1">
+                  {saving ? 'Saving...' : (modalMode === 'add' ? 'Add User' : 'Save Changes')}
                 </button>
                 <button
                   type="button"
