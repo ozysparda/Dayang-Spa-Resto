@@ -34,6 +34,19 @@ export default function Attendance() {
     onBreak: false,
   });
 
+  const getStatusLabel = () => {
+    if (currentStatus.clockedIn && currentStatus.onBreak) return 'ON BREAK';
+    if (currentStatus.clockedIn) return 'WORKING';
+    if (!currentStatus.clockedIn) return 'OFF DUTY';
+    return 'OFF DUTY';
+  };
+
+  const getStatusColor = () => {
+    if (currentStatus.clockedIn && currentStatus.onBreak) return 'yellow-500';
+    if (currentStatus.clockedIn) return 'green-500';
+    return 'gray-500';
+  };
+
   const [filters, setFilters] = useState({
     startDate: new Date().toISOString().split('T')[0],
     endDate: new Date().toISOString().split('T')[0],
@@ -41,6 +54,10 @@ export default function Attendance() {
   });
 
   const handleClockIn = async () => {
+    if (currentStatus.clockedIn) {
+      toast.error('Already clocked in today');
+      return;
+    }
     try {
       await clockInMutation('/attendance/clock-in', 'POST');
       refetch();
@@ -53,6 +70,10 @@ export default function Attendance() {
   };
 
   const handleClockOut = async () => {
+    if (!currentStatus.clockedIn) {
+      toast.error('Not clocked in yet');
+      return;
+    }
     try {
       await clockOutMutation('/attendance/clock-out', 'POST');
       refetch();
@@ -65,6 +86,14 @@ export default function Attendance() {
   };
 
   const handleBreakStart = async () => {
+    if (!currentStatus.clockedIn) {
+      toast.error('Must clock in first');
+      return;
+    }
+    if (currentStatus.onBreak) {
+      toast.error('Already on break');
+      return;
+    }
     try {
       await breakStartMutation('/attendance/break-start', 'POST');
       refetch();
@@ -77,6 +106,14 @@ export default function Attendance() {
   };
 
   const handleBreakEnd = async () => {
+    if (!currentStatus.clockedIn) {
+      toast.error('Must clock in first');
+      return;
+    }
+    if (!currentStatus.onBreak) {
+      toast.error('Not on break');
+      return;
+    }
     try {
       await breakEndMutation('/attendance/break-end', 'POST');
       refetch();

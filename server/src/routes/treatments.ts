@@ -49,7 +49,7 @@ router.get('/:id', async (req: any, res) => {
 router.post('/', async (req: any, res) => {
   try {
     const userOutletId = req.user.outletId;
-    const { name, description, duration, price, defaultCommission } = req.body;
+        const { name, description, duration, price, defaultCommission, commissionPercent } = req.body;
 
     if (!name || !duration || !price) {
       return res.status(400).json({ message: 'Missing required fields' });
@@ -62,6 +62,7 @@ router.post('/', async (req: any, res) => {
       duration,
       price,
       defaultCommission,
+      commissionPercent: commissionPercent != null ? commissionPercent : 20,
       isActive: true,
     }).returning();
 
@@ -180,10 +181,18 @@ router.delete('/:id', async (req: any, res) => {
 router.post('/input', async (req: any, res) => {
   try {
     const userOutletId = req.user.outletId;
-    const { therapistId, customerId, treatmentId, bookingId, startTime, endTime, duration, price, commission, room, notes, customerName } = req.body;
+        const { therapistId, customerId, treatmentId, bookingId, startTime, endTime, duration, price, commission, room, notes, customerName, idempotencyKey } = req.body;
 
     if (!therapistId || !treatmentId || !startTime || !endTime || !price) {
       return res.status(400).json({ message: 'Missing required fields: therapist, treatment, start/end time, price' });
+    }
+
+    // The timestamp columns expect real Date objects (drizzle's timestamp
+    // mapper calls .toISOString()), so parse the client-supplied string times.
+    const parsedStart = new Date(startTime);
+    const parsedEnd = new Date(endTime);
+    if (isNaN(parsedStart.getTime()) || isNaN(parsedEnd.getTime())) {
+      return res.status(400).json({ message: 'Invalid start or end time' });
     }
 
     const therapist = await db.select().from(staffProfiles)
@@ -194,27 +203,48 @@ router.post('/input', async (req: any, res) => {
       .where(eq(treatments.id, treatmentId)).limit(1);
     if (!treatment.length) return res.status(400).json({ message: 'Invalid treatment' });
 
-    // Duplicate prevention
+    // Idempotency: if the client supplied an idempotency key (generated when the
+    // cashier began filling the form), return the previously recorded transaction
+    // instead of creating a duplicate. This survives double-clicks, slow
+    // networks, page refreshes, and retries — the server enforces it, not just
+    // the disabled button.
+    if (idempotencyKey) {
+      const existing = await db.select().from(treatmentTransactions)
+        .where(eq(treatmentTransactions.idempotencyKey, idempotencyKey)).limit(1);
+      if (existing.length > 0) {
+        const prevTx = existing[0];
+        return res.status(200).json({
+          ...prevTx,
+          treatmentName: treatment[0].name,
+          therapistName: therapist[0].name,
+          idempotent: true,
+        });
+      }
+    }
+
+    // Booking-linked duplicate prevention (walk-ins rely on the idempotency key).
     if (bookingId) {
       const existing = await db.select().from(treatmentTransactions)
         .where(eq(treatmentTransactions.bookingId, bookingId)).limit(1);
       if (existing.length > 0) return res.status(409).json({ message: 'Transaction already recorded for this booking', existing: existing[0] });
     }
+```
 
     const txId = uuidv4();
     const effDuration = duration || treatment[0].duration;
-    const newTx = await db.insert(treatmentTransactions).values({
+        const newTx = await db.insert(treatmentTransactions).values({
       id: txId,
       bookingId: bookingId || undefined,
       treatmentId,
       therapistId,
       customerName: customerName || therapist[0].name,
-      startTime,
-      endTime,
-      price,
-      commission,
+      startTime: parsedStart,
+      endTime: parsedEnd,
+      price: String(price),
+      commission: String(commission || 0),
       room,
       notes: notes || '',
+      idempotencyKey: idempotencyKey || undefined,
       outletId: userOutletId,
       recordedBy: req.user.id,
     }).returning();

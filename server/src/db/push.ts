@@ -56,6 +56,7 @@ async function pushSchema() {
         duration INTEGER NOT NULL,
         price INTEGER NOT NULL,
         default_commission INTEGER NOT NULL,
+        commission_percent INTEGER NOT NULL DEFAULT 20,
         is_active BOOLEAN DEFAULT true,
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
@@ -75,7 +76,7 @@ async function pushSchema() {
         end_time TIME NOT NULL,
         price INTEGER NOT NULL,
         commission INTEGER,
-        status VARCHAR(50) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'CONFIRMED', 'IN_TREATMENT', 'COMPLETED', 'CANCELLED')),
+        status VARCHAR(50) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'CONFIRMED', 'IN_TREATMENT', 'COMPLETED', 'CANCELLED', 'NO_SHOW')),
         notes TEXT,
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
@@ -338,8 +339,43 @@ async function pushSchema() {
   }
 }
 
+// Safe, additive migrations for EXISTING databases (idempotent, non-destructive).
+async function runSafeAdditiveMigrations() {
+  // Add commission_percent to treatments if missing (backward compatible).
+  await db.execute(sql`
+    ALTER TABLE treatments ADD COLUMN IF NOT EXISTS commission_percent INTEGER NOT NULL DEFAULT 20
+  `);
+
+  // Allow NO_SHOW status on bookings. Existing DBs created the status CHECK
+  // without NO_SHOW, so we recreate the constraint to include it. Dropping a
+  // CHECK constraint is non-destructive (no data loss).
+  await db.execute(sql`
+    ALTER TABLE bookings DROP CONSTRAINT IF EXISTS bookings_status_check
+  `);
+  await db.execute(sql`
+    ALTER TABLE bookings ADD CONSTRAINT bookings_status_check
+      CHECK (status IN ('PENDING', 'CONFIRMED', 'IN_TREATMENT', 'COMPLETED', 'CANCELLED', 'NO_SHOW'))
+  `);
+        // Allow NO_SHOW status (existing migration logic above).
+    console.log('Safe additive migrations applied.');
+
+    // Treatment input idempotency: a client-generated key prevents duplicate
+    // transactions when the cashier double-clicks, the network stalls, or the
+    // page refreshes mid-submit. Nullable so existing walk-in rows are unaffected.
+    await db.execute(sql`
+      ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(255)
+    `);
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS treatment_transactions_idempotency_key_unique
+        ON treatment_transactions(idempotency_key)
+        WHERE idempotency_key IS NOT NULL
+    `);
+    console.log('Idempotency key column applied.');
+  }
+
 pushSchema()
-  .then(() => {
+  .then(async () => {
+    await runSafeAdditiveMigrations();
     console.log('Push completed');
     process.exit(0);
   })

@@ -111,10 +111,11 @@ async function seed() {
   await db.insert(treatments).values({
     id: 'treatment-1',
     name: 'FM',
-    description: 'Full Body Massage',
+          description: 'Full Body Massage',
     duration: 60,
     price: 100000,
     defaultCommission: 50000,
+    commissionPercent: 20,
   } as any);
 
   await db.insert(treatments).values({
@@ -124,6 +125,7 @@ async function seed() {
     duration: 90,
     price: 150000,
     defaultCommission: 75000,
+    commissionPercent: 25,
   } as any);
 
   await db.insert(treatments).values({
@@ -133,6 +135,7 @@ async function seed() {
     duration: 60,
     price: 120000,
     defaultCommission: 60000,
+    commissionPercent: 20,
   } as any);
 
   // Create activity log for seeding

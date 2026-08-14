@@ -3,7 +3,7 @@ import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
 import toast from 'react-hot-toast';
 
 interface Staff { id: string; name: string; status: string; }
-interface Treatment { id: string; name: string; duration: number; price: number; defaultCommission: number; }
+interface Treatment { id: string; name: string; duration: number; price: number; defaultCommission: number; commissionPercent: number; }
 
 export default function TreatmentInput() {
   const { data: staffData } = useAsyncData<Staff[]>('/staff');
@@ -24,13 +24,15 @@ export default function TreatmentInput() {
   useEffect(() => {
     if (formData.treatmentId && formData.startTime) {
       const t = treatments.find(x => x.id === formData.treatmentId);
-      if (t) {
+            if (t) {
         // Phase 4: Use proper date/time arithmetic for duration calculation
         const start = new Date(formData.startTime);
         const end = new Date(start);
         end.setMinutes(end.getMinutes() + t.duration);
         const fmt = (d: Date) => d.toISOString().slice(0, 16);
-        setFormData(p => ({ ...p, duration: t.duration, endTime: fmt(end), price: t.price || p.price, commission: t.defaultCommission || p.commission }));
+        const resolvedPrice = t.price || formData.price || 0;
+        const resolvedCommission = Math.round(Number(resolvedPrice) * Number(t.commissionPercent || 0) / 100);
+        setFormData(p => ({ ...p, duration: t.duration, endTime: fmt(end), price: resolvedPrice, commission: resolvedCommission }));
       }
     }
   }, [formData.treatmentId, formData.startTime, treatments]);

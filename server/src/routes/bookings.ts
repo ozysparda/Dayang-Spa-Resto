@@ -250,8 +250,18 @@ router.post('/', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
     bookingDate.setHours(0, 0, 0, 0);
 
     // Use provided duration, otherwise derive from treatment
-    const treatmentDuration = typeof duration === 'number' ? duration : treatment[0].duration;
+             const treatmentDuration = typeof duration === 'number' ? duration : treatment[0].duration;
     const expectedEndTime = addMinutes(startDateTime, treatmentDuration);
+
+    // The price and commission are authoritative from the treatment master
+    // record. If the client supplied an explicit commission AMOUNT it is
+    // honoured, otherwise commission is computed as price * commissionPercent / 100
+    // (requirement: configurable commission percentage).
+    const resolvedPrice = price != null ? price : treatment[0].price;
+    const resolvedCommission =
+      typeof commission === 'number' && commission > 0
+        ? commission
+        : Math.round(Number(resolvedPrice) * Number(treatment[0].commissionPercent || 0) / 100);
 
     // If client provided endTime, validate it matches the calculated time (±1 min tolerance)
     if (endTime) {
@@ -266,13 +276,13 @@ router.post('/', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
       }
     }
 
-    // Check for booking conflicts
+        // Check for booking conflicts
     const conflictingBooking = await db.select()
       .from(bookings)
       .where(and(
         eq(bookings.therapistId, therapistId),
         eq(bookings.outletId, userOutletId),
-        sql`${bookings.status} != 'CANCELLED'`,
+        sql`${bookings.status} NOT IN ('CANCELLED', 'NO_SHOW')`,
         or(
           and(
             gte(bookings.startTime, startDateTime),
@@ -314,9 +324,9 @@ router.post('/', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
       duration: treatmentDuration,
       treatmentId,
       therapistId,
-      room,
-      price: price || treatment[0].price,
-      commission: commission || treatment[0].defaultCommission,
+            room,
+      price: String(resolvedPrice),
+      commission: String(resolvedCommission),
       status: 'PENDING',
       notes,
       createdBy: req.user.id,
@@ -417,6 +427,27 @@ router.patch('/:id', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
       return res.status(404).json({ message: 'Booking not found' });
     }
 
+        // Validate booking status transitions per the workflow:
+    // PENDING -> CONFIRMED -> IN_TREATMENT -> COMPLETED
+    // PENDING -> CANCELLED / NO_SHOW ; CONFIRMED -> CANCELLED / NO_SHOW
+    if (updates.status) {
+      const currentStatus = existingBooking[0].status;
+      const allowedTransitions: Record<string, string[]> = {
+        'PENDING': ['PENDING', 'CONFIRMED', 'CANCELLED', 'NO_SHOW'],
+        'CONFIRMED': ['CONFIRMED', 'IN_TREATMENT', 'COMPLETED', 'CANCELLED', 'NO_SHOW'],
+        'IN_TREATMENT': ['IN_TREATMENT', 'COMPLETED', 'CANCELLED'],
+        'COMPLETED': ['COMPLETED'],
+        'CANCELLED': ['CANCELLED'],
+        'NO_SHOW': ['NO_SHOW'],
+      };
+      const allowed = allowedTransitions[currentStatus as string] || [];
+      if (!allowed.includes(updates.status)) {
+        return res.status(400).json({
+          message: `Invalid booking status transition from ${currentStatus} to ${updates.status}. Allowed: ${allowed.join(', ')}`,
+        });
+      }
+    }
+
     // If therapist or time is being changed, check for conflicts
     if (updates.therapistId || updates.startTime || updates.endTime) {
       const therapistId = updates.therapistId || existingBooking[0].therapistId;
@@ -440,8 +471,8 @@ router.patch('/:id', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
         .where(and(
           eq(bookings.therapistId, therapistId),
           eq(bookings.outletId, userOutletId),
-          sql`${bookings.id} != '${id}'`,
-          sql`${bookings.status} != 'CANCELLED'`,
+                    sql`${bookings.id} != '${id}'`,
+          sql`${bookings.status} NOT IN ('CANCELLED', 'NO_SHOW')`,
           or(
             and(
               gte(bookings.startTime, startTime),
@@ -700,7 +731,7 @@ router.get('/available-therapists', async (req: any, res) => {
       .from(bookings)
       .where(and(
         eq(bookings.outletId, userOutletId),
-        sql`${bookings.status} != 'CANCELLED'`,
+        sql`${bookings.status} NOT IN ('CANCELLED', 'NO_SHOW')`,
         or(
           and(
             gte(bookings.startTime, startDateTime),
@@ -810,7 +841,7 @@ router.get('/availability', async (req: any, res) => {
       .where(
         and(
           eq(bookings.outletId, userOutletId),
-          sql`${bookings.status} != 'CANCELLED'`,
+          sql`${bookings.status} NOT IN ('CANCELLED', 'NO_SHOW')`,
           or(
             and(gte(bookings.startTime, startDateTime), lt(bookings.startTime, endDateTime)),
             and(gte(bookings.endTime, startDateTime), lt(bookings.endTime, endDateTime)),
@@ -905,7 +936,7 @@ router.get('/schedule', async (req: any, res) => {
           eq(bookings.outletId, userOutletId),
           gte(bookings.date, slotDate),
           lt(bookings.date, nextDay),
-          sql`${bookings.status} != 'CANCELLED'`
+          sql`${bookings.status} NOT IN ('CANCELLED', 'NO_SHOW')`
         )
       );
 

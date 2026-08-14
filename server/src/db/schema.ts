@@ -95,6 +95,9 @@ export const treatments = pgTable('treatments', {
   duration: integer('duration').notNull(), // in minutes
   price: numeric('price', { precision: 10, scale: 2 }).notNull(),
   defaultCommission: numeric('default_commission', { precision: 10, scale: 2 }),
+  // Commission expressed as a percentage of price (e.g. 20 = 20%).
+  // Commission amount is computed as price * commissionPercent / 100.
+  commissionPercent: integer('commission_percent').notNull().default(20),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
@@ -116,7 +119,7 @@ export const bookings = pgTable('bookings', {
   room: text('room'),
   price: numeric('price', { precision: 10, scale: 2 }).notNull(),
   commission: numeric('commission', { precision: 10, scale: 2 }),
-  status: text('status', { enum: ['PENDING', 'CONFIRMED', 'IN_TREATMENT', 'COMPLETED', 'CANCELLED'] }).notNull().default('PENDING'),
+  status: text('status', { enum: ['PENDING', 'CONFIRMED', 'IN_TREATMENT', 'COMPLETED', 'CANCELLED', 'NO_SHOW'] }).notNull().default('PENDING'),
   notes: text('notes'),
   createdBy: text('created_by').notNull().references(() => users.id),
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -141,8 +144,9 @@ export const treatmentTransactions = pgTable('treatment_transactions', {
   endTime: timestamp('end_time').notNull(),
   price: numeric('price', { precision: 10, scale: 2 }).notNull(),
   commission: numeric('commission', { precision: 10, scale: 2 }).notNull(),
-  room: text('room'),
+    room: text('room'),
   notes: text('notes'),
+  idempotencyKey: text('idempotency_key').unique(),
   recordedBy: text('recorded_by').notNull().references(() => users.id),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 }, (table) => ({

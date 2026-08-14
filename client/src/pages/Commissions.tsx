@@ -36,6 +36,7 @@ export default function Commissions() {
   const [dateFrom, setDateFrom] = useState(new Date().toISOString().split('T')[0]);
   const [dateTo, setDateTo] = useState(new Date().toISOString().split('T')[0]);
   const [search, setSearch] = useState('');
+  const [staffFilter, setStaffFilter] = useState(''); // Filter by therapist
 
   const fetchCommissions = async () => {
     setLoading(true);
@@ -46,6 +47,7 @@ export default function Commissions() {
       if (dateFrom) params.set('dateFrom', dateFrom);
       if (dateTo) params.set('dateTo', dateTo);
       if (search) params.set('search', search);
+      if (staffFilter) params.set('staffId', staffFilter);
       const response = await api.get(`/commissions?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -123,7 +125,7 @@ export default function Commissions() {
           <Filter className="w-5 h-5" />
           Filters
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Date From</label>
             <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="input-field" />
@@ -135,6 +137,12 @@ export default function Commissions() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Search Customer</label>
             <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Customer name..." className="input-field" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Therapist</label>
+            <select value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)} className="input-field">
+              <option value="">All Therapists</option>
+            </select>
           </div>
           <div className="flex items-end">
             <button onClick={fetchCommissions} className="btn-primary w-full">Apply Filters</button>

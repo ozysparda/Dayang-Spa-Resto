@@ -29,6 +29,7 @@ interface Treatment {
   duration: number;
   price: number;
   defaultCommission: number;
+  commissionPercent: number;
 }
 
 interface Staff {
@@ -51,6 +52,44 @@ export default function Bookings() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [availabilityError, setAvailabilityError] = useState<string | null>(null);
+
+  const checkBookingAvailability = async () => {
+    if (!formData.staffId || !formData.date || !formData.startTime || !formData.treatmentId) {
+      setAvailabilityError(null);
+      return;
+    }
+    
+    const treatment = treatments.find(t => t.id === formData.treatmentId);
+    if (!treatment) {
+      setAvailabilityError('Treatment not found');
+      return;
+    }
+
+    const [hours, minutes] = formData.startTime.split(':').map(Number);
+    const startDate = new Date(`${formData.date}T${formData.startTime}`);
+    startDate.setHours(hours, minutes, 0, 0);
+    const endDate = new Date(startDate);
+    endDate.setMinutes(endDate.getMinutes() + treatment.duration);
+
+    try {
+      const params = new URLSearchParams({
+        date: formData.date,
+        startTime: formData.startTime,
+        duration: treatment.duration.toString(),
+        staffId: formData.staffId,
+      });
+      const res = await api.get(`/bookings/availability?${params.toString()}`);
+      const isAvailable = res.data.available.includes(formData.staffId);
+      if (isAvailable) {
+        setAvailabilityError(null);
+      } else {
+        const therapistName = formData.staffName || 'the selected therapist';
+        setAvailabilityError(` ${therapistName} is already booked at this time. Choose a different time or therapist.`);
+      }
+    } catch (e: any) {
+      setAvailabilityError('Failed to check availability. Please try again.');
+    }
+  };
 
     // Top-level view toggle between bookings list, availability board, and schedule grid.
   const [view, setView] = useState<'bookings' | 'availability' | 'schedule'>('bookings');
@@ -85,6 +124,8 @@ export default function Bookings() {
   });
 
   // Auto-calculate end time, duration, price, commission when treatment or start time changes
+    // Auto-calculate end time, duration, price, commission when treatment or start time changes.
+  // Commission is computed as price * commissionPercent / 100 (configurable percentage).
   useEffect(() => {
     if (formData.treatmentId && formData.startTime && formData.date) {
       const treatment = treatments.find(t => t.id === formData.treatmentId);
@@ -93,19 +134,31 @@ export default function Bookings() {
         const startDate = new Date(`${formData.date}T${formData.startTime}`);
         startDate.setHours(hours, minutes, 0, 0);
         const endDate = new Date(startDate);
+        // Correct date/time arithmetic: 10:10 + 60 min = 11:10 (never 10:60)
         endDate.setMinutes(endDate.getMinutes() + treatment.duration);
         const endTime = `${String(endDate.getHours()).padStart(2, '0')}:${String(endDate.getMinutes()).padStart(2, '0')}`;
-        
+        const resolvedPrice = treatment.price || formData.price || 0;
+        const resolvedCommission = Math.round(
+          Number(resolvedPrice) * Number(treatment.commissionPercent || 0) / 100
+        );
+
         setFormData(prev => ({
           ...prev,
           duration: treatment.duration,
           endTime,
-          price: treatment.price || prev.price,
-          commission: treatment.defaultCommission || prev.commission,
+          price: resolvedPrice,
+          commission: resolvedCommission || prev.commission,
         }));
       }
     }
-  }, [formData.treatmentId, formData.startTime, formData.date, treatments]);
+    }, [formData.treatmentId, formData.startTime, formData.date, treatments]);
+
+  // Check therapist availability when staff/date/time/treatment changes
+  useEffect(() => {
+    if (formData.staffId && formData.date && formData.startTime && formData.treatmentId) {
+      checkBookingAvailability();
+    }
+  }, [formData.staffId, formData.date, formData.startTime, formData.treatmentId, availabilityError]);
 
   // Phase 16: Form validation
   const validateForm = (): boolean => {
@@ -185,6 +238,7 @@ export default function Bookings() {
           const aborted = error && (error.name === 'CanceledError' || error.name === 'AbortError' || error.code === 'ERR_CANCELED');
           if (cancelled || aborted) return;
           console.error('Availability check failed:', error);
+          setAvailabilityError('Unable to check therapist availability');
         }
       };
 
@@ -269,16 +323,20 @@ export default function Bookings() {
     setAvailabilityError(null);
   };
 
-  const getStatusColor = (status: string) => {
+    const getStatusColor = (status: string) => {
     switch (status) {
       case 'CONFIRMED':
         return 'bg-green-100 text-green-800';
+      case 'IN_TREATMENT':
+        return 'bg-orange-100 text-orange-800';
       case 'PENDING':
         return 'bg-yellow-100 text-yellow-800';
       case 'COMPLETED':
         return 'bg-blue-100 text-blue-800';
       case 'CANCELLED':
         return 'bg-red-100 text-red-800';
+      case 'NO_SHOW':
+        return 'bg-purple-100 text-purple-800';
       default:
         return 'bg-gray-100 text-gray-800';
     }
@@ -388,8 +446,9 @@ export default function Bookings() {
               <option value="all">All Status</option>
               <option value="PENDING">Pending</option>
               <option value="CONFIRMED">Confirmed</option>
-              <option value="COMPLETED">Completed</option>
+                            <option value="COMPLETED">Completed</option>
               <option value="CANCELLED">Cancelled</option>
+              <option value="NO_SHOW">No Show</option>
             </select>
           </div>
         </div>
@@ -455,8 +514,11 @@ export default function Bookings() {
                         {(booking.status === 'IN_TREATMENT' || booking.status === 'CONFIRMED') && (
                           <button onClick={() => handleStatusChange(booking.id, 'COMPLETED')} className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200">Complete</button>
                         )}
-                        {['PENDING', 'CONFIRMED', 'IN_TREATMENT'].includes(booking.status) && (
+                                                {['PENDING', 'CONFIRMED', 'IN_TREATMENT'].includes(booking.status) && (
                           <button onClick={() => handleStatusChange(booking.id, 'CANCELLED')} className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200">Cancel</button>
+                        )}
+                        {booking.status === 'CONFIRMED' && (
+                          <button onClick={() => handleStatusChange(booking.id, 'NO_SHOW')} className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded hover:bg-purple-200">No Show</button>
                         )}
                       </div>
                     </td>

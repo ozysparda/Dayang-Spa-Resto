@@ -6,20 +6,25 @@ import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 interface DashboardStats {
-  bookingsToday: number;
-  staffOnline: number;
+  // Today's Bookings by status
   pendingBookings: number;
-  staffOnBreak: number;
-  staffOnTreatment: number;
-  availableTherapists: number;
-  inChargeStaff: number;
-  busyStaff: number;
-  offAirStaff: number;
-  todayRevenue: number;
-  todayCommission: number;
   confirmedBookings: number;
   inTreatmentBookings: number;
-  completedTreatments: number;
+  completedBookings: number;
+  cancelledBookings: number;
+  noShowBookings: number;
+  
+  // Staff breakdown
+  totalStaff: number;
+  availableTherapists: number;
+  inChargeStaff: number;
+  busyStaff: number;     // IN_TREATMENT
+  staffOnBreak: number;
+  offAirStaff: number;
+  
+  // Financial
+  todayRevenue: number;
+  todayCommission: number;
 }
 
 interface StaffStatus {
@@ -64,6 +69,7 @@ interface MyBooking {
   treatmentName: string;
   room: string;
   status: string;
+  commission?: number;
 }
 
 type DashboardData = {
@@ -98,6 +104,7 @@ export default function Dashboard() {
     { key: 'staffStatus', url: '/dashboard/staff-status' },
     { key: 'nextBookings', url: '/dashboard/next-bookings' },
     { key: 'activities', url: '/dashboard/activity?limit=10' },
+    ...(user?.role === 'ADMIN' || user?.role === 'DEVELOPER' ? [{ key: 'adminStats', url: '/dashboard/admin-stats' }] : []),
     ...(user?.role === 'STAFF' ? [{ key: 'myProfile', url: '/staff/me' }] : []),
     ...(user?.role === 'STAFF' ? [{ key: 'myTodayBookings', url: '/bookings?date=' + todayStr }] : []),
   ]);
@@ -111,6 +118,25 @@ export default function Dashboard() {
 
     return () => clearInterval(interval);
   }, [refetch]);
+
+  // Update status when component mounts (sync with server)
+  useEffect(() => {
+    const updateMyStatus = async () => {
+      if (!user?.id) return;
+      try {
+        await updateStatus.mutateAsync({
+          id: user.id,
+          outlet: user.outletId,
+          status: myStatus || 'FREE',
+        });
+      } catch (e: any) {
+        console.error('Failed to update status:', e);
+      }
+    };
+    updateMyStatus();
+    const timeout = setTimeout(updateMyStatus, 60000); // refresh every minute
+    return () => clearTimeout(timeout);
+  }, [user?.id, myStatus, updateStatus]);
 
   // Update remaining time every 30 seconds
   useEffect(() => {
@@ -158,7 +184,13 @@ export default function Dashboard() {
   const staffStatus = data?.staffStatus || [];
   const nextBookings = data?.nextBookings || [];
   const activities = data?.activities || [];
-  const myTodayBookings = (data?.myTodayBookings || []) as MyBooking[];
+    const myTodayBookings = (data?.myTodayBookings || []) as MyBooking[];
+  // Today's treatments and commission are computed from completed bookings so
+  // they stay in sync with the actual treatment transactions.
+  const completedToday = myTodayBookings.filter(b => b.status === 'COMPLETED').length;
+  const todayCommission = myTodayBookings
+    .filter(b => b.status === 'COMPLETED')
+    .reduce((sum, b) => sum + Number(b.commission || 0), 0);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -207,10 +239,47 @@ export default function Dashboard() {
 
     return (
       <div className="p-4 md:p-8 max-w-4xl mx-auto">
-        <div className="mb-8">
+                <div className="mb-8">
           <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Hi, {user.name}</h1>
           <p className="text-gray-500 mt-1">{todayLabel}</p>
+          <p className="text-sm text-gray-400 mt-1">{now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</p>
         </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+          <div className="card">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-purple-100 rounded-lg">
+                <Activity className="w-6 h-6 text-purple-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-600">Treatments Today</p>
+                <p className="text-2xl font-bold text-gray-900">{completedToday}</p>
+              </div>
+            </div>
+          </div>
+          <div className="card">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-green-100 rounded-lg">
+                <DollarSign className="w-6 h-6 text-green-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-600">Today's Commission</p>
+                <p className="text-2xl font-bold text-gray-900">Rp {todayCommission.toLocaleString('id-ID')}</p>
+              </div>
+            </div>
+          </div>
+          <div className="card">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-blue-100 rounded-lg">
+                <Clock className="w-6 h-6 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-600">Attendance</p>
+                <button onClick={() => navigate('/attendance')} className="text-blue-600 hover:underline text-sm font-medium">Open</button>
+              </div>
+            </div>
+          </div>
+                </div>
 
         <div className="card mb-6">
           <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">

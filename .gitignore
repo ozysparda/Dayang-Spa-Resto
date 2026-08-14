@@ -121,3 +121,11 @@ _dburl.txt
 nul
 server/*.mjs
 server/*.txt
+
+# Root-level scratch/test artifacts created during E2E testing
+/_*.json
+/_*.txt
+/_*.mjs
+/_*.cjs
+/_*.sh
+/client/_build.txt

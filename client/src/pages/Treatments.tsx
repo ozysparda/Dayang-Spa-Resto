@@ -10,6 +10,7 @@ interface Treatment {
   duration: number;
   price: number;
   defaultCommission: number;
+  commissionPercent: number;
   isActive: boolean;
 }
 
@@ -24,12 +25,13 @@ export default function Treatments() {
   const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [editingTreatment, setEditingTreatment] = useState<Treatment | null>(null);
-  const [formData, setFormData] = useState({
+    const [formData, setFormData] = useState({
     name: '',
     description: '',
     duration: 60,
     price: 0,
     defaultCommission: 0,
+    commissionPercent: 20,
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -52,13 +54,14 @@ export default function Treatments() {
   };
 
   const handleEdit = (treatment: Treatment) => {
-    setEditingTreatment(treatment);
+         setEditingTreatment(treatment);
     setFormData({
       name: treatment.name,
       description: treatment.description,
       duration: treatment.duration,
       price: treatment.price,
       defaultCommission: treatment.defaultCommission,
+      commissionPercent: treatment.commissionPercent ?? 20,
     });
     setShowModal(true);
   };
@@ -75,13 +78,14 @@ export default function Treatments() {
     }
   };
 
-  const resetForm = () => {
+    const resetForm = () => {
     setFormData({
       name: '',
       description: '',
       duration: 60,
       price: 0,
       defaultCommission: 0,
+      commissionPercent: 20,
     });
     setEditingTreatment(null);
   };
@@ -238,6 +242,23 @@ export default function Treatments() {
                   onChange={(e) => setFormData({ ...formData, defaultCommission: Number(e.target.value) })}
                   className="input-field"
                 />
+              </div>
+
+                            <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Commission (%)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={formData.commissionPercent}
+                  onChange={(e) => setFormData({ ...formData, commissionPercent: Number(e.target.value) })}
+                  className="input-field"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Auto-calculated commission = price × {formData.commissionPercent}% (≈ Rp {Math.round(Number(formData.price || 0) * Number(formData.commissionPercent || 0) / 100).toLocaleString()})
+                </p>
               </div>
 
               <div className="flex gap-3 pt-4">
