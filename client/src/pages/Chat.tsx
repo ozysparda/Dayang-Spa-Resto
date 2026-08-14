@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Send, MessageSquare } from 'lucide-react';
 import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
+import { useAuthStore } from '../stores/authStore';
 import toast from 'react-hot-toast';
 import { api } from '../services/api';
 
@@ -32,6 +33,7 @@ interface Message {
 }
 
 export default function Chat() {
+  const { user } = useAuthStore();
     const { data: conversationsData, loading, refetch } = useAsyncData<Conversation[]>('/chat/conversations');
   const sendMessage = useAsyncMutation();
   const createConversation = useAsyncMutation();
@@ -60,12 +62,11 @@ export default function Chat() {
   // /staff is ADMIN/DEVELOPER-only, so non-admin staff would otherwise get a
   // 403 toast every time they open or navigate back into Chat. Swallow that
   // (and cancellation) error silently; only log unexpected failures.
-  useEffect(() => {
-    const controller = new AbortController();
+  const loadStaff = () => {
     api
-      .get('/staff', { signal: controller.signal })
+      .get('/staff')
       .then((res) => {
-        if (!controller.signal.aborted) setStaff(res.data);
+        setStaff(res.data || []);
       })
       .catch((err: any) => {
         const cancelled =
@@ -76,8 +77,23 @@ export default function Chat() {
           console.warn('Staff roster fetch failed:', err?.response?.data?.message || err.message);
         }
       });
-    return () => controller.abort();
+  };
+
+  // Load staff roster on mount so participants are always available.
+  useEffect(() => {
+    loadStaff();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Refresh the roster every time the "New Conversation" modal is opened so a
+  // staff member/user created after Chat first loaded is included the moment
+  // the admin goes to start a conversation.
+  useEffect(() => {
+    if (showNewConversation) {
+      loadStaff();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showNewConversation]);
   
   // Track mount status to prevent state updates after unmount
   useEffect(() => {
@@ -330,7 +346,9 @@ export default function Chat() {
                   Select Participants
                 </label>
                 <div className="space-y-2 max-h-60 overflow-y-auto">
-                  {staff.map((person) => (
+                  {staff
+                    .filter((person: any) => person.userId !== user?.id)
+                    .map((person) => (
                                         <div key={person.id} className="flex items-center">
                       <input
                         type="checkbox"
@@ -344,6 +362,9 @@ export default function Chat() {
                       </label>
                     </div>
                   ))}
+                  {staff.filter((p: any) => p.userId !== user?.id).length === 0 && (
+                    <p className="text-sm text-gray-500 py-2">No other users available to message.</p>
+                  )}
                 </div>
               </div>
               <div className="flex gap-3 pt-4">
