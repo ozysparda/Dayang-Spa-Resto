@@ -25,6 +25,11 @@ interface DashboardStats {
   // Financial
   todayRevenue: number;
   todayCommission: number;
+
+  // Aggregate/Totals (returned by /dashboard/stats)
+  bookingsToday: number;
+  staffOnline: number;
+  completedTreatments: number;
 }
 
 interface StaffStatus {
@@ -124,9 +129,7 @@ export default function Dashboard() {
     const updateMyStatus = async () => {
       if (!user?.id) return;
       try {
-        await updateStatus.mutateAsync({
-          id: user.id,
-          outlet: user.outletId,
+        await updateStatus('/staff/my-status', 'PATCH', {
           status: myStatus || 'FREE',
         });
       } catch (e: any) {

@@ -339,14 +339,15 @@ router.post('/input', async (req: any, res) => {
         .where(eq(commissions.treatmentTransactionId, txId));
       if (!existingCommission.length) {
         await db.insert(commissions).values({
+          id: uuidv4(),
           treatmentTransactionId: txId,
           therapistId,
           outletId: userOutletId,
           customerId: customerId || undefined,
           treatmentName: treatment[0].name,
-          treatmentPrice: Number(price),
+          treatmentPrice: String(Number(price)),
           commissionPercent: treatment[0].commissionPercent || 20,
-          commissionAmount: commissionToUse,
+          commissionAmount: String(Number(commissionToUse)),
           status: 'PENDING',
         });
       }

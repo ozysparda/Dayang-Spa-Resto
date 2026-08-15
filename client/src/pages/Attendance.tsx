@@ -34,19 +34,6 @@ export default function Attendance() {
     onBreak: false,
   });
 
-  const getStatusLabel = () => {
-    if (currentStatus.clockedIn && currentStatus.onBreak) return 'ON BREAK';
-    if (currentStatus.clockedIn) return 'WORKING';
-    if (!currentStatus.clockedIn) return 'OFF DUTY';
-    return 'OFF DUTY';
-  };
-
-  const getStatusColor = () => {
-    if (currentStatus.clockedIn && currentStatus.onBreak) return 'yellow-500';
-    if (currentStatus.clockedIn) return 'green-500';
-    return 'gray-500';
-  };
-
   const [filters, setFilters] = useState({
     startDate: new Date().toISOString().split('T')[0],
     endDate: new Date().toISOString().split('T')[0],

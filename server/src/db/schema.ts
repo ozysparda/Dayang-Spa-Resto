@@ -155,6 +155,29 @@ export const treatmentTransactions = pgTable('treatment_transactions', {
   createdAtIdx: index('treatment_transactions_created_at_idx').on(table.createdAt),
 }));
 
+// Commissions
+export const commissions = pgTable('commissions', {
+  id: text('id').primaryKey(),
+  treatmentTransactionId: text('treatment_transaction_id').notNull().references(() => treatmentTransactions.id, { onDelete: 'cascade' }),
+  therapistId: text('therapist_id').notNull().references(() => staffProfiles.id),
+  outletId: text('outlet_id').notNull().references(() => outlets.id),
+  customerId: text('customer_id'),
+  treatmentName: text('treatment_name').notNull(),
+  treatmentPrice: numeric('treatment_price', { precision: 10, scale: 2 }).notNull(),
+  commissionPercent: integer('commission_percent').notNull().default(20),
+  commissionAmount: numeric('commission_amount', { precision: 10, scale: 2 }).notNull(),
+  status: text('status', { enum: ['PENDING', 'APPROVED', 'PAID', 'REJECTED'] }).notNull().default('PENDING'),
+  paidAt: timestamp('paid_at'),
+  approvedBy: text('approved_by').references(() => users.id),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => ({
+  txIdIdx: index('commissions_tx_id_idx').on(table.treatmentTransactionId),
+  therapistIdIdx: index('commissions_therapist_id_idx').on(table.therapistId),
+  outletIdIdx: index('commissions_outlet_id_idx').on(table.outletId),
+  statusIdx: index('commissions_status_idx').on(table.status),
+}));
+
 // Notifications
 export const notifications = pgTable('notifications', {
   id: text('id').primaryKey(),
@@ -373,8 +396,31 @@ export const treatmentTransactionsRelations = relations(treatmentTransactions, (
     fields: [treatmentTransactions.treatmentId],
     references: [treatments.id],
   }),
-  recordedByUser: one(users, {
+    recordedByUser: one(users, {
     fields: [treatmentTransactions.recordedBy],
+    references: [users.id],
+  }),
+  commission: one(commissions, {
+    fields: [treatmentTransactions.id],
+    references: [commissions.treatmentTransactionId],
+  }),
+}));
+
+export const commissionsRelations = relations(commissions, ({ one }) => ({
+  treatmentTransaction: one(treatmentTransactions, {
+    fields: [commissions.treatmentTransactionId],
+    references: [treatmentTransactions.id],
+  }),
+  therapist: one(staffProfiles, {
+    fields: [commissions.therapistId],
+    references: [staffProfiles.id],
+  }),
+  outlet: one(outlets, {
+    fields: [commissions.outletId],
+    references: [outlets.id],
+  }),
+  approvedByUser: one(users, {
+    fields: [commissions.approvedBy],
     references: [users.id],
   }),
 }));

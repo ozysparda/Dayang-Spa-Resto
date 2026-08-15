@@ -83,7 +83,7 @@ export default function Bookings() {
       if (isAvailable) {
         setAvailabilityError(null);
       } else {
-        const therapistName = formData.staffName || 'the selected therapist';
+        const therapistName = staff.find(s => s.id === formData.staffId)?.name || 'the selected therapist';
         setAvailabilityError(` ${therapistName} is already booked at this time. Choose a different time or therapist.`);
       }
     } catch (e: any) {
