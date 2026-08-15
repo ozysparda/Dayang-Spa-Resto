@@ -223,6 +223,32 @@ async function pushSchema() {
     await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS recorded_at TIMESTAMP DEFAULT NOW()`);
     await db.execute(sql`ALTER TABLE treatment_transactions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
 
+    // Commissions — one record per treatment transaction (created in treatments.ts).
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS commissions (
+        id VARCHAR(255) PRIMARY KEY,
+        treatment_transaction_id VARCHAR(255) NOT NULL REFERENCES treatment_transactions(id) ON DELETE CASCADE,
+        therapist_id VARCHAR(255) REFERENCES staff_profiles(id),
+        outlet_id VARCHAR(255) REFERENCES outlets(id),
+        customer_id VARCHAR(255),
+        treatment_name VARCHAR(255) NOT NULL,
+        treatment_price NUMERIC(10, 2) NOT NULL,
+        commission_percent INTEGER NOT NULL DEFAULT 20,
+        commission_amount NUMERIC(10, 2) NOT NULL,
+        status VARCHAR(50) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'APPROVED', 'PAID', 'REJECTED')),
+        paid_at TIMESTAMP,
+        approved_by VARCHAR(255) REFERENCES users(id),
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    // Indexes for the commission list/filter queries.
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS commissions_tx_id_idx ON commissions(treatment_transaction_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS commissions_therapist_id_idx ON commissions(therapist_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS commissions_outlet_id_idx ON commissions(outlet_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS commissions_status_idx ON commissions(status)`);
+
     // Reconcile bookings table columns that may be missing
     await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(255)`);
     await db.execute(sql`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS duration INTEGER`);
