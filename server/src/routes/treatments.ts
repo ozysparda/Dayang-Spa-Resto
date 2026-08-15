@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { db } from '../db/index.js';
-import { treatments, activityLogs, bookings, staffProfiles, outlets, treatmentTransactions, notifications, staffStatus, staffStatusHistory, users } from '../db/schema.js';
+import { treatments, activityLogs, bookings, staffProfiles, outlets, treatmentTransactions, notifications, staffStatus, staffStatusHistory, users, commissions } from '../db/schema.js';
 import { eq, desc, and, gte, lte, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { dispatchPushToUser } from '../routes/push.js';
@@ -232,6 +232,10 @@ router.post('/input', async (req: any, res) => {
     }
 
     const txId = uuidv4();
+    // Calculate commission if not provided: commission = price × commissionPercent / 100
+    const treatmentPercent = treatment[0].commissionPercent || 20; // default 20%
+    const calculatedCommission = Number(price) * treatmentPercent / 100;
+    const commissionToUse = commission !== undefined && commission !== '' ? Number(commission) : calculatedCommission;
     const effDuration = duration || treatment[0].duration;
         const newTx = await db.insert(treatmentTransactions).values({
       id: txId,
@@ -242,7 +246,7 @@ router.post('/input', async (req: any, res) => {
       startTime: parsedStart,
       endTime: parsedEnd,
       price: String(price),
-      commission: String(commission || 0),
+      commission: String(commissionToUse),
       room,
       notes: notes || '',
       idempotencyKey: idempotencyKey || undefined,
@@ -328,6 +332,27 @@ router.post('/input', async (req: any, res) => {
     }
 
     res.status(201).json({ ...newTx[0], treatmentName: treatment[0].name, therapistName: therapist[0].name });
+  
+    // Create commission record
+    try {
+      const existingCommission = await db.select().from(commissions)
+        .where(eq(commissions.treatmentTransactionId, txId));
+      if (!existingCommission.length) {
+        await db.insert(commissions).values({
+          treatmentTransactionId: txId,
+          therapistId,
+          outletId: userOutletId,
+          customerId: customerId || undefined,
+          treatmentName: treatment[0].name,
+          treatmentPrice: Number(price),
+          commissionPercent: treatment[0].commissionPercent || 20,
+          commissionAmount: commissionToUse,
+          status: 'PENDING',
+        });
+      }
+    } catch (e) {
+      console.warn('Commission record creation warning:', e);
+    }
   } catch (error) {
     console.error('Treatment input error:', error);
     res.status(500).json({ message: 'Failed to record treatment' });
