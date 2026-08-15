@@ -222,13 +222,14 @@ router.post('/input', async (req: any, res) => {
       }
     }
 
+
+
     // Booking-linked duplicate prevention (walk-ins rely on the idempotency key).
     if (bookingId) {
       const existing = await db.select().from(treatmentTransactions)
         .where(eq(treatmentTransactions.bookingId, bookingId)).limit(1);
       if (existing.length > 0) return res.status(409).json({ message: 'Transaction already recorded for this booking', existing: existing[0] });
     }
-```
 
     const txId = uuidv4();
     const effDuration = duration || treatment[0].duration;
