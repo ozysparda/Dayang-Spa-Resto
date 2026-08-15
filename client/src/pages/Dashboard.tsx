@@ -124,23 +124,6 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [refetch]);
 
-  // Update status when component mounts (sync with server)
-  useEffect(() => {
-    const updateMyStatus = async () => {
-      if (!user?.id) return;
-      try {
-        await updateStatus('/staff/my-status', 'PATCH', {
-          status: myStatus || 'FREE',
-        });
-      } catch (e: any) {
-        console.error('Failed to update status:', e);
-      }
-    };
-    updateMyStatus();
-    const timeout = setTimeout(updateMyStatus, 60000); // refresh every minute
-    return () => clearTimeout(timeout);
-  }, [user?.id, myStatus, updateStatus]);
-
   // Update remaining time every 30 seconds
   useEffect(() => {
     const interval = setInterval(() => {
