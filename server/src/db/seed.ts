@@ -107,6 +107,36 @@ async function seed() {
     outletId,
   });
 
+  // Create cashier user
+  const cashierId = 'user-4';
+  const cashierPassword = await bcrypt.hash('cashier123', 10);
+  await db.insert(users).values({
+    id: cashierId,
+    staffId: 'CSH001',
+    username: 'cashier',
+    password: cashierPassword,
+    role: 'CASHIER',
+  });
+
+  // Create cashier staff profile
+  const cashierStaffId = 'staff-4';
+  await db.insert(staffProfiles).values({
+    id: cashierStaffId,
+    userId: cashierId,
+    name: 'Cashier User',
+    email: 'cashier@dayangspa.com',
+    phone: '081234567893',
+    outletId,
+  });
+
+  // Create cashier staff status
+  await db.insert(staffStatus).values({
+    id: uuidv4(),
+    staffId: cashierStaffId,
+    status: 'FREE',
+    outletId,
+  });
+
   // Create sample treatments
   await db.insert(treatments).values({
     id: 'treatment-1',
@@ -157,6 +187,7 @@ async function seed() {
   console.log('Developer: developer / developer123');
   console.log('Admin: admin / admin123');
   console.log('Staff: rizal / staff123');
+  console.log('Cashier: cashier / cashier123');
 }
 
 seed()

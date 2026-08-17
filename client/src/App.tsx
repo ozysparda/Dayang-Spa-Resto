@@ -16,6 +16,7 @@ import Outlets from './pages/Outlets';
 import SystemSettings from './pages/SystemSettings';
 import Layout from './components/Layout';
 import Commissions from './pages/Commissions';
+import Settlement from './pages/Settlement';
 
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles: string[] }) {
   const { user, isAuthenticated } = useAuthStore();
@@ -39,13 +40,13 @@ function App() {
       <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />} />
       
       <Route path="/" element={
-        <ProtectedRoute allowedRoles={['STAFF', 'ADMIN', 'DEVELOPER']}>
+        <ProtectedRoute allowedRoles={['STAFF', 'ADMIN', 'DEVELOPER', 'CASHIER']}>
           <Layout />
         </ProtectedRoute>
       }>
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="bookings" element={
-          <ProtectedRoute allowedRoles={['ADMIN', 'DEVELOPER']}>
+          <ProtectedRoute allowedRoles={['ADMIN', 'DEVELOPER', 'CASHIER']}>
             <Bookings />
           </ProtectedRoute>
         } />
@@ -55,8 +56,13 @@ function App() {
           </ProtectedRoute>
         } />
         <Route path="attendance" element={
-          <ProtectedRoute allowedRoles={['STAFF', 'ADMIN', 'DEVELOPER']}>
+          <ProtectedRoute allowedRoles={['STAFF', 'ADMIN', 'DEVELOPER', 'CASHIER']}>
             <Attendance />
+          </ProtectedRoute>
+        } />
+        <Route path="settlement" element={
+          <ProtectedRoute allowedRoles={['CASHIER', 'ADMIN', 'DEVELOPER']}>
+            <Settlement />
           </ProtectedRoute>
         } />
         <Route path="treatments" element={
@@ -75,7 +81,7 @@ function App() {
           </ProtectedRoute>
         } />
         <Route path="commissions" element={
-          <ProtectedRoute allowedRoles={['ADMIN', 'DEVELOPER']}>
+          <ProtectedRoute allowedRoles={['ADMIN', 'DEVELOPER', 'CASHIER']}>
             <Commissions />
           </ProtectedRoute>
         } />

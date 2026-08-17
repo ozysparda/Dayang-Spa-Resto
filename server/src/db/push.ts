@@ -15,7 +15,7 @@ async function pushSchema() {
         staff_id VARCHAR(255) UNIQUE NOT NULL,
         username VARCHAR(255) UNIQUE NOT NULL,
         password VARCHAR(255) NOT NULL,
-        role VARCHAR(50) NOT NULL CHECK (role IN ('STAFF', 'ADMIN', 'DEVELOPER')),
+        role VARCHAR(50) NOT NULL CHECK (role IN ('STAFF', 'ADMIN', 'DEVELOPER', 'CASHIER')),
         is_active BOOLEAN DEFAULT true,
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
@@ -372,15 +372,23 @@ async function runSafeAdditiveMigrations() {
     ALTER TABLE treatments ADD COLUMN IF NOT EXISTS commission_percent INTEGER NOT NULL DEFAULT 20
   `);
 
-  // Allow NO_SHOW status on bookings. Existing DBs created the status CHECK
-  // without NO_SHOW, so we recreate the constraint to include it. Dropping a
-  // CHECK constraint is non-destructive (no data loss).
+  // Allow NO_SHOW / PENDING_PAYMENT status on bookings. Existing DBs created
+  // the status CHECK without them, so we recreate the constraint to include
+  // them. Dropping a CHECK constraint is non-destructive (no data loss).
   await db.execute(sql`
     ALTER TABLE bookings DROP CONSTRAINT IF EXISTS bookings_status_check
   `);
   await db.execute(sql`
     ALTER TABLE bookings ADD CONSTRAINT bookings_status_check
-      CHECK (status IN ('PENDING', 'CONFIRMED', 'IN_TREATMENT', 'COMPLETED', 'CANCELLED', 'NO_SHOW'))
+      CHECK (status IN ('PENDING', 'CONFIRMED', 'IN_TREATMENT', 'PENDING_PAYMENT', 'COMPLETED', 'CANCELLED', 'NO_SHOW'))
+  `);
+  // Allow the CASHIER role on existing databases (recreate the role CHECK).
+  await db.execute(sql`
+    ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check
+  `);
+  await db.execute(sql`
+    ALTER TABLE users ADD CONSTRAINT users_role_check
+      CHECK (role IN ('STAFF', 'ADMIN', 'DEVELOPER', 'CASHIER'))
   `);
         // Allow NO_SHOW status (existing migration logic above).
     console.log('Safe additive migrations applied.');

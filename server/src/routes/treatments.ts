@@ -8,8 +8,10 @@ import { dispatchPushToUser } from '../routes/push.js';
 
 const router = Router();
 
-// All routes require authentication and ADMIN or DEVELOPER role
-router.use(authenticate, authorize('ADMIN', 'DEVELOPER'));
+// All routes require authentication and ADMIN, DEVELOPER, or CASHIER role.
+// (UI pages remain gated to ADMIN/DEVELOPER; CASHIER gets read access for
+// viewing treatments/treatment history during settlement.)
+router.use(authenticate, authorize('ADMIN', 'DEVELOPER', 'CASHIER'));
 
 // GET /api/treatments - Get all treatments
 router.get('/', async (req: any, res) => {

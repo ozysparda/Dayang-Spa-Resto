@@ -20,7 +20,8 @@ import {
   MapPin,
   X,
   DollarSign,
-  ClipboardList
+  ClipboardList,
+  Receipt
 } from 'lucide-react';
 
 const staffLinks = [
@@ -40,6 +41,17 @@ const adminLinks = [
   { to: '/treatment-input', icon: ClipboardList, label: 'Treatment Input' },
   { to: '/inventory', icon: Package, label: 'Inventory' },
   { to: '/commissions', icon: DollarSign, label: 'Commissions' },
+  { to: '/chat', icon: MessageSquare, label: 'Chat' },
+  { to: '/announcements', icon: Megaphone, label: 'Announcements' },
+  { to: '/profile', icon: User, label: 'Profile' },
+];
+
+const cashierLinks = [
+  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/settlement', icon: Receipt, label: 'Settlement' },
+  { to: '/bookings', icon: Calendar, label: 'Bookings' },
+  { to: '/commissions', icon: DollarSign, label: 'Commissions' },
+  { to: '/attendance', icon: Clock, label: 'Attendance' },
   { to: '/chat', icon: MessageSquare, label: 'Chat' },
   { to: '/announcements', icon: Megaphone, label: 'Announcements' },
   { to: '/profile', icon: User, label: 'Profile' },
@@ -70,6 +82,8 @@ export default function Layout() {
         return developerLinks;
       case 'ADMIN':
         return adminLinks;
+      case 'CASHIER':
+        return cashierLinks;
       default:
         return staffLinks;
     }

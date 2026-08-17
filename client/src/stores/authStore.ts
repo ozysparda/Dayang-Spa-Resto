@@ -6,7 +6,7 @@ export interface User {
   staffId: string;
   username: string;
   name: string;
-  role: 'STAFF' | 'ADMIN' | 'DEVELOPER';
+    role: 'STAFF' | 'ADMIN' | 'DEVELOPER' | 'CASHIER';
   outletId: string;
   outletName: string;
   email?: string;

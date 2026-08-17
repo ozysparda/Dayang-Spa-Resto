@@ -109,7 +109,7 @@ export default function Dashboard() {
     { key: 'staffStatus', url: '/dashboard/staff-status' },
     { key: 'nextBookings', url: '/dashboard/next-bookings' },
     { key: 'activities', url: '/dashboard/activity?limit=10' },
-    ...(user?.role === 'ADMIN' || user?.role === 'DEVELOPER' ? [{ key: 'adminStats', url: '/dashboard/admin-stats' }] : []),
+    ...(user?.role === 'ADMIN' || user?.role === 'DEVELOPER' || user?.role === 'CASHIER' ? [{ key: 'adminStats', url: '/dashboard/admin-stats' }] : []),
     ...(user?.role === 'STAFF' ? [{ key: 'myProfile', url: '/staff/me' }] : []),
     ...(user?.role === 'STAFF' ? [{ key: 'myTodayBookings', url: '/bookings?date=' + todayStr }] : []),
   ]);

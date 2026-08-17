@@ -24,15 +24,17 @@ const router = Router();
 // All routes require authentication
 router.use(authenticate);
 
-// Helper to check if user is ADMIN/DEVELOPER
-const isAdmin = (req: any) => ['ADMIN', 'DEVELOPER'].includes(req.user.role);
+// Helper to check if a user can view all bookings. ADMIN/DEVELOPER always can;
+// CASHIER can view all (for settlement) but cannot create/edit bookings.
+const canViewAllBookings = (req: any) =>
+  ['ADMIN', 'DEVELOPER', 'CASHIER'].includes(req.user.role);
 
 // GET /api/bookings - Get bookings (STAFF sees their own, ADMIN sees all)
 router.get('/', async (req: any, res) => {
   try {
     const userOutletId = req.user.outletId;
     const { date, status, therapistId } = req.query;
-    const admin = isAdmin(req);
+    const admin = canViewAllBookings(req);
 
     let allBookings;
     
@@ -427,15 +429,16 @@ router.patch('/:id', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
       return res.status(404).json({ message: 'Booking not found' });
     }
 
-        // Validate booking status transitions per the workflow:
-    // PENDING -> CONFIRMED -> IN_TREATMENT -> COMPLETED
+                // Validate booking status transitions per the workflow:
+    // PENDING -> CONFIRMED -> IN_TREATMENT -> PENDING_PAYMENT -> COMPLETED
     // PENDING -> CANCELLED / NO_SHOW ; CONFIRMED -> CANCELLED / NO_SHOW
     if (updates.status) {
       const currentStatus = existingBooking[0].status;
       const allowedTransitions: Record<string, string[]> = {
         'PENDING': ['PENDING', 'CONFIRMED', 'CANCELLED', 'NO_SHOW'],
-        'CONFIRMED': ['CONFIRMED', 'IN_TREATMENT', 'COMPLETED', 'CANCELLED', 'NO_SHOW'],
-        'IN_TREATMENT': ['IN_TREATMENT', 'COMPLETED', 'CANCELLED'],
+        'CONFIRMED': ['CONFIRMED', 'IN_TREATMENT', 'PENDING_PAYMENT', 'CANCELLED', 'NO_SHOW'],
+        'IN_TREATMENT': ['IN_TREATMENT', 'PENDING_PAYMENT', 'COMPLETED', 'CANCELLED'],
+        'PENDING_PAYMENT': ['PENDING_PAYMENT', 'COMPLETED'],
         'COMPLETED': ['COMPLETED'],
         'CANCELLED': ['CANCELLED'],
         'NO_SHOW': ['NO_SHOW'],
