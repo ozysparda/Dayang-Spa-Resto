@@ -126,4 +126,44 @@ router.get('/me', authenticate, async (req: any, res) => {
   }
 });
 
+// PATCH /api/auth/password - Change own password (all authenticated users).
+//
+// Body: { currentPassword, newPassword }
+//
+// Verifies the current password against the stored hash before updating.
+router.patch('/password', authenticate, async (req: any, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'Current password and new password are required' });
+    }
+
+    if (String(newPassword).length < 6) {
+      return res.status(400).json({ message: 'New password must be at least 6 characters' });
+    }
+
+    const user = await db.select().from(users).where(eq(users.id, req.user.id)).limit(1);
+    if (!user.length) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const isValid = await bcrypt.compare(currentPassword, user[0].password);
+    if (!isValid) {
+      return res.status(400).json({ message: 'Current password is incorrect' });
+    }
+
+    const newPasswordHash = await bcrypt.hash(newPassword, 10);
+
+    await db.update(users)
+      .set({ password: newPasswordHash, updatedAt: new Date() })
+      .where(eq(users.id, req.user.id));
+
+    res.json({ message: 'Password changed successfully' });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({ message: 'Failed to change password' });
+  }
+});
+
 export default router;
