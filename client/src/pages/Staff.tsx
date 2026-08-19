@@ -99,18 +99,6 @@ export default function Staff() {
     }
   };
 
-    const resetForm = () => {
-    setFormData({
-      name: '',
-      email: '',
-      phone: '',
-      username: '',
-      password: '',
-      gender: 'Unspecified',
-      role: 'STAFF',
-    });
-  };
-
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'FREE':
