@@ -3,16 +3,16 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { toast } from 'react-hot-toast';
 import NotificationBell from './NotificationBell';
-import { 
-  LayoutDashboard, 
-  Calendar, 
-  Users, 
-  Clock, 
-  FlaskConical, 
-  Package, 
-  MessageSquare, 
-  Megaphone, 
-  User, 
+import {
+  LayoutDashboard,
+  Calendar,
+  Users,
+  Clock,
+  FlaskConical,
+  Package,
+  MessageSquare,
+  Megaphone,
+  User,
   LogOut,
   Menu,
   Settings,
@@ -21,7 +21,8 @@ import {
   X,
   DollarSign,
   ClipboardList,
-  Receipt
+  Receipt,
+  BarChart3
 } from 'lucide-react';
 
 const staffLinks = [
@@ -41,6 +42,7 @@ const adminLinks = [
   { to: '/treatment-input', icon: ClipboardList, label: 'Treatment Input' },
   { to: '/inventory', icon: Package, label: 'Inventory' },
   { to: '/commissions', icon: DollarSign, label: 'Commissions' },
+  { to: '/reports', icon: BarChart3, label: 'Reports' },
   { to: '/chat', icon: MessageSquare, label: 'Chat' },
   { to: '/announcements', icon: Megaphone, label: 'Announcements' },
   { to: '/profile', icon: User, label: 'Profile' },

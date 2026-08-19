@@ -133,7 +133,7 @@ router.get('/stats', async (req: any, res) => {
         eq(bookings.status, 'IN_TREATMENT')
       ));
 
-    // Get completed treatments count
+        // Get completed treatments count
     const completedTreatments = await db.select({ count: sql<number>`count(*)` })
       .from(bookings)
       .where(and(
@@ -141,6 +141,36 @@ router.get('/stats', async (req: any, res) => {
         gte(bookings.date, today),
         lt(bookings.date, tomorrow),
         eq(bookings.status, 'COMPLETED')
+      ));
+
+    // Get pending payment bookings count
+    const pendingPaymentBookings = await db.select({ count: sql<number>`count(*)` })
+      .from(bookings)
+      .where(and(
+        eq(bookings.outletId, userOutletId),
+        gte(bookings.date, today),
+        lt(bookings.date, tomorrow),
+        eq(bookings.status, 'PENDING_PAYMENT')
+      ));
+
+    // Get cancelled bookings count
+    const cancelledBookings = await db.select({ count: sql<number>`count(*)` })
+      .from(bookings)
+      .where(and(
+        eq(bookings.outletId, userOutletId),
+        gte(bookings.date, today),
+        lt(bookings.date, tomorrow),
+        eq(bookings.status, 'CANCELLED')
+      ));
+
+    // Get no-show bookings count
+    const noShowBookings = await db.select({ count: sql<number>`count(*)` })
+      .from(bookings)
+      .where(and(
+        eq(bookings.outletId, userOutletId),
+        gte(bookings.date, today),
+        lt(bookings.date, tomorrow),
+        eq(bookings.status, 'NO_SHOW')
       ));
 
     res.json({
@@ -158,6 +188,9 @@ router.get('/stats', async (req: any, res) => {
       confirmedBookings: Number(confirmedBookings[0]?.count || 0),
       inTreatmentBookings: Number(inTreatmentBookings[0]?.count || 0),
       completedTreatments: Number(completedTreatments[0]?.count || 0),
+      pendingPaymentBookings: Number(pendingPaymentBookings[0]?.count || 0),
+      cancelledBookings: Number(cancelledBookings[0]?.count || 0),
+      noShowBookings: Number(noShowBookings[0]?.count || 0),
     });
   } catch (error) {
     console.error('Get dashboard stats error:', error);
@@ -171,9 +204,10 @@ router.get('/staff-status', async (req: any, res) => {
     const userOutletId = req.user.outletId;
     const now = new Date();
 
-    const staffList = await db.select({
+        const staffList = await db.select({
       id: staffProfiles.id,
       name: staffProfiles.name,
+      gender: staffProfiles.gender,
       status: staffStatus.status,
       outletName: outlets.name,
       currentTreatmentId: staffStatus.currentTreatmentId,

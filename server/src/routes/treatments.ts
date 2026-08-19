@@ -5,6 +5,7 @@ import { treatments, activityLogs, bookings, staffProfiles, outlets, treatmentTr
 import { eq, desc, and, gte, lte, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { dispatchPushToUser } from '../routes/push.js';
+import { consumeRecipeForTreatment } from '../utils/recipe.js';
 
 const router = Router();
 
@@ -261,11 +262,18 @@ router.post('/input', async (req: any, res) => {
       id: uuidv4(),
       userId: therapist[0].userId || '',
       title: 'New Treatment',
-      message: `Treatment: ${treatment[0].name} (${effDuration} min) - ${room || ''}`,
+            message: `Treatment: ${treatment[0].name} (${effDuration} min) - ${room || ''}`,
       type: 'TREATMENT_ASSIGNED',
       isRead: false,
       createdAt: new Date(),
     });
+
+    // Consume raw materials linked to this treatment via its recipe.
+    try {
+      await consumeRecipeForTreatment(treatmentId, userOutletId, txId);
+    } catch (recipeErr) {
+      console.error('Recipe consumption failed (non-blocking):', recipeErr);
+    }
 
     // Push notification
     try {

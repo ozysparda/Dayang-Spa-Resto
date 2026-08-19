@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Calendar, Users, Clock, Activity, UserCheck, MessageSquare, Bell, User, DollarSign } from 'lucide-react';
+import { Calendar, Users, Clock, Activity, UserCheck, MessageSquare, Bell, User, DollarSign, Receipt } from 'lucide-react';
 import { useParallelFetch, useAsyncMutation } from '../hooks/useAsyncData';
 import { useAuthStore } from '../stores/authStore';
 import { useNavigate } from 'react-router-dom';
@@ -10,6 +10,7 @@ interface DashboardStats {
   pendingBookings: number;
   confirmedBookings: number;
   inTreatmentBookings: number;
+  pendingPaymentBookings: number;
   completedBookings: number;
   cancelledBookings: number;
   noShowBookings: number;
@@ -469,13 +470,22 @@ export default function Dashboard() {
             <Calendar className="w-8 h-8 text-blue-600 opacity-50" />
           </div>
         </div>
-        <div className="card">
+                <div className="card">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500">In-Treatment</p>
               <p className="text-2xl font-bold text-red-600">{stats.inTreatmentBookings}</p>
             </div>
             <Clock className="w-8 h-8 text-red-600 opacity-50" />
+          </div>
+        </div>
+        <div className="card">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">Pending Payment</p>
+              <p className="text-2xl font-bold text-amber-600">{stats.pendingPaymentBookings || 0}</p>
+            </div>
+            <Receipt className="w-8 h-8 text-amber-600 opacity-50" />
           </div>
         </div>
         <div className="card">

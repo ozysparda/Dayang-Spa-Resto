@@ -2,9 +2,10 @@ import { Router } from 'express';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { db } from '../db/index.js';
 import { bookings, staffStatus, treatments, staffProfiles, outlets, users, notifications, activityLogs, staffStatusHistory, treatmentTransactions } from '../db/schema.js';
-import { eq, and, gte, lt, lte, desc, sql, or } from 'drizzle-orm';
+import { eq, and, gte, lt, lte, desc, sql, or, ne } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { dispatchPushToUser } from '../routes/push.js';
+import { consumeRecipeForTreatment } from '../utils/recipe.js';
 
 // Utility: add minutes to a Date/string timestamp, correctly handling day boundaries.
 function addMinutes(startTime: string | Date, minutes: number): Date {
@@ -182,7 +183,11 @@ router.get('/:id', async (req: any, res) => {
       startTime: bookings.startTime,
       endTime: bookings.endTime,
       duration: bookings.duration,
-      room: bookings.room,
+            room: bookings.room,
+      guests: bookings.guests,
+      preferredGender: bookings.preferredGender,
+      actualStartTime: bookings.actualStartTime,
+      bed: bookings.bed,
       price: bookings.price,
       commission: bookings.commission,
       status: bookings.status,
@@ -229,6 +234,9 @@ router.post('/', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
       startTime,
       endTime,
       room,
+      guests,
+      preferredGender,
+      bed,
       price,
       commission,
       notes,
@@ -324,9 +332,12 @@ router.post('/', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
       startTime: startDateTime,
       endTime: expectedEndTime,
       duration: treatmentDuration,
-      treatmentId,
+            treatmentId,
       therapistId,
-            room,
+      room,
+      guests: guests ?? 1,
+      preferredGender: preferredGender || 'Any',
+      bed,
       price: String(resolvedPrice),
       commission: String(resolvedCommission),
       status: 'PENDING',
@@ -501,6 +512,11 @@ router.patch('/:id', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
       }
     }
 
+        // Auto-set actualStartTime when a treatment actually begins.
+    if (updates.status === 'IN_TREATMENT' && !updates.actualStartTime) {
+      updates.actualStartTime = new Date().toISOString();
+    }
+
     // Update booking
     const updatedBooking = await db.update(bookings)
       .set({ ...updates, updatedAt: new Date() })
@@ -585,9 +601,10 @@ router.patch('/:id', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
           .where(eq(treatmentTransactions.bookingId, existingBooking[0].bookingId))
           .limit(1);
 
-        if (existingTx.length === 0) {
+                if (existingTx.length === 0) {
+          const txId = uuidv4();
           await db.insert(treatmentTransactions).values({
-            id: uuidv4(),
+            id: txId,
             bookingId: existingBooking[0].bookingId,
             outletId: existingBooking[0].outletId,
             therapistId: existingBooking[0].therapistId,
@@ -601,6 +618,17 @@ router.patch('/:id', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
             notes: existingBooking[0].notes,
             recordedBy: req.user.id,
           });
+
+          // Consume raw materials linked to this treatment via its recipe.
+          try {
+            await consumeRecipeForTreatment(
+              existingBooking[0].treatmentId,
+              existingBooking[0].outletId,
+              txId,
+            );
+          } catch (recipeErr) {
+            console.error('Recipe consumption failed (non-blocking):', recipeErr);
+          }
         }
       } catch (txError) {
         console.error('Error generating commission transaction:', txError);
@@ -716,10 +744,11 @@ router.get('/available-therapists', async (req: any, res) => {
     const startDateTime = toMinutePrecision(new Date(startTime as string));
     const endDateTime = toMinutePrecision(new Date(endTime as string));
 
-    // Get all active staff in the outlet
+        // Get all active staff in the outlet
     const allStaff = await db.select({
       id: staffProfiles.id,
       name: staffProfiles.name,
+      gender: staffProfiles.gender,
       status: staffStatus.status,
     })
       .from(staffProfiles)
@@ -822,6 +851,7 @@ router.get('/availability', async (req: any, res) => {
       .select({
         id: staffProfiles.id,
         name: staffProfiles.name,
+        gender: staffProfiles.gender,
         status: staffStatus.status,
       })
       .from(staffProfiles)
@@ -979,6 +1009,67 @@ router.get('/schedule', async (req: any, res) => {
   } catch (error) {
     console.error('Get schedule error:', error);
     res.status(500).json({ message: 'Failed to fetch schedule' });
+  }
+});
+
+// GET /api/bookings/:id/whatsapp - WhatsApp message + link for a booking
+router.get('/:id/whatsapp', async (req: any, res) => {
+  try {
+    const userOutletId = req.user.outletId;
+    const booking = await db
+      .select({
+        bookingId: bookings.bookingId,
+        customerName: bookings.customerName,
+        customerPhone: bookings.customerPhone,
+        date: bookings.date,
+        startTime: bookings.startTime,
+        endTime: bookings.endTime,
+        duration: bookings.duration,
+        room: bookings.room,
+        guests: bookings.guests,
+        price: bookings.price,
+        status: bookings.status,
+        treatmentName: treatments.name,
+        therapistName: staffProfiles.name,
+        outletName: outlets.name,
+      })
+      .from(bookings)
+      .leftJoin(treatments, eq(bookings.treatmentId, treatments.id))
+      .leftJoin(staffProfiles, eq(bookings.therapistId, staffProfiles.id))
+      .leftJoin(outlets, eq(bookings.outletId, outlets.id))
+      .where(and(eq(bookings.id, req.params.id), eq(bookings.outletId, userOutletId)))
+      .limit(1);
+
+    if (!booking.length) return res.status(404).json({ message: 'Booking not found' });
+    const b = booking[0];
+
+    const fmtTime = (d: any) =>
+      d ? new Date(d).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-';
+    const message = [
+      `Halo ${b.therapistName || 'tim terapi'}`,
+      '',
+      `Ini adalah informasi booking dari ${b.outletName || 'Dayang Spa Resto'}:`,
+      `*Pelanggan:* ${b.customerName}${b.guests && b.guests > 1 ? ` (${b.guests} orang)` : ''}`,
+      `*Treatment:* ${b.treatmentName || '-'}`,
+      `*Tanggal:* ${new Date(b.date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`,
+      `*Jam:* ${fmtTime(b.startTime)} - ${fmtTime(b.endTime)} (${b.duration} menit)`,
+      `*Ruangan:* ${b.room || '-'}`,
+      `*Harga:* Rp ${Number(b.price).toLocaleString('id-ID')}`,
+      `*Status:* ${b.status}`,
+      '',
+      'Terima kasih.',
+    ].join('\n');
+
+    const phone = (b.customerPhone || '').replace(/[\s-]/g, '');
+    const encoded = encodeURIComponent(message);
+    const waLink = phone
+      ? `https://wa.me/${phone}?text=${encoded}`
+      : `https://wa.me/?text=${encoded}`;
+
+    res.json({ booking: b, message, waLink });
+  } catch (error) {
+    console.error('WhatsApp info error:', error);
+    res.status(500).json({ message: 'Failed to build WhatsApp info' });
   }
 });
 

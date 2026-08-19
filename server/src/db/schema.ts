@@ -34,6 +34,7 @@ export const staffProfiles = pgTable('staff_profiles', {
   name: text('name').notNull(),
   email: text('email'),
   phone: text('phone'),
+  gender: text('gender', { enum: ['Male', 'Female', 'Other', 'Unspecified'] }).notNull().default('Unspecified'),
   outletId: text('outlet_id').notNull().references(() => outlets.id),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -117,6 +118,14 @@ export const bookings = pgTable('bookings', {
   treatmentId: text('treatment_id').notNull().references(() => treatments.id),
   therapistId: text('therapist_id').notNull().references(() => staffProfiles.id),
   room: text('room'),
+  // Operations: number of guests on a single booking
+  guests: integer('guests').notNull().default(1),
+  // Operations: preferred therapist gender for matching
+  preferredGender: text('preferred_gender', { enum: ['Male', 'Female', 'Any'] }).notNull().default('Any'),
+  // Operations: actual start time when treatment begins
+  actualStartTime: timestamp('actual_start_time'),
+  // Operations: bed / station assignment
+  bed: text('bed'),
   price: numeric('price', { precision: 10, scale: 2 }).notNull(),
   commission: numeric('commission', { precision: 10, scale: 2 }),
     status: text('status', { enum: ['PENDING', 'CONFIRMED', 'IN_TREATMENT', 'PENDING_PAYMENT', 'COMPLETED', 'CANCELLED', 'NO_SHOW'] }).notNull().default('PENDING'),
@@ -244,11 +253,85 @@ export const inventory = pgTable('inventory', {
   cost: numeric('cost', { precision: 10, scale: 2 }),
   sellingPrice: numeric('selling_price', { precision: 10, scale: 2 }),
   outletId: text('outlet_id').notNull().references(() => outlets.id),
+  // Multi-unit / raw material (BAHAN BAKU) support
+  minimumStock: numeric('minimum_stock', { precision: 14, scale: 3 }),
+  purchaseUnit: text('purchase_unit'),
+  usageUnit: text('usage_unit'),
+  conversion: numeric('conversion', { precision: 14, scale: 6 }).notNull().default(1),
+  purchasePrice: numeric('purchase_price', { precision: 14, scale: 2 }),
+  costPerUsageUnit: numeric('cost_per_usage_unit', { precision: 14, scale: 4 }),
+  supplier: text('supplier'),
+  isActive: boolean('is_active').notNull().default(true),
+  notes: text('notes'),
   lastUpdated: timestamp('last_updated').notNull().defaultNow(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 }, (table) => ({
   skuIdx: index('inventory_sku_idx').on(table.sku),
   outletIdIdx: index('inventory_outlet_id_idx').on(table.outletId),
+}));
+
+// Suppliers (raw-material vendors)
+export const suppliers = pgTable('suppliers', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull().unique(),
+  phone: text('phone'),
+  email: text('email'),
+  address: text('address'),
+  notes: text('notes'),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+// Stock movement ledger — every stock change writes one immutable row so the
+// inventory balance is always reproducible from history.
+export const inventoryMovements = pgTable('inventory_movements', {
+  id: text('id').primaryKey(),
+  inventoryId: text('inventory_id').notNull().references(() => inventory.id, { onDelete: 'cascade' }),
+  outletId: text('outlet_id').notNull().references(() => outlets.id),
+  type: text('type', {
+    enum: ['IN', 'OUT', 'ADJUSTMENT', 'RECIPE_CONSUMPTION', 'OPENING', 'OPNAME', 'REVERSAL'],
+  }).notNull(),
+  quantity: numeric('quantity', { precision: 14, scale: 3 }).notNull(),
+  unit: text('unit'),
+  beforeStock: numeric('before_stock', { precision: 14, scale: 3 }).notNull(),
+  afterStock: numeric('after_stock', { precision: 14, scale: 3 }).notNull(),
+  referenceType: text('reference_type'),
+  referenceId: text('reference_id'),
+  reason: text('reason'),
+  notes: text('notes'),
+  createdBy: text('created_by').references(() => users.id),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (table) => ({
+  inventoryIdIdx: index('inventory_movements_inventory_id_idx').on(table.inventoryId),
+  outletIdIdx: index('inventory_movements_outlet_id_idx').on(table.outletId),
+  createdAtIdx: index('inventory_movements_created_at_idx').on(table.createdAt),
+  typeIdx: index('inventory_movements_type_idx').on(table.type),
+}));
+
+// Master Recipe — a reusable template of raw materials + quantities.
+export const recipes = pgTable('recipes', {
+  id: text('id').primaryKey(),
+  code: text('code').notNull().unique(),
+  name: text('name').notNull(),
+  description: text('description'),
+  notes: text('notes'),
+  isActive: boolean('is_active').notNull().default(true),
+  createdBy: text('created_by').references(() => users.id),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+// Recipe ingredient lines.
+export const recipeItems = pgTable('recipe_items', {
+  id: text('id').primaryKey(),
+  recipeId: text('recipe_id').notNull().references(() => recipes.id, { onDelete: 'cascade' }),
+  inventoryId: text('inventory_id').notNull().references(() => inventory.id),
+  quantity: numeric('quantity', { precision: 14, scale: 3 }).notNull(),
+  unit: text('unit'),
+}, (table) => ({
+  recipeIdIdx: index('recipe_items_recipe_id_idx').on(table.recipeId),
+  inventoryIdIdx: index('recipe_items_inventory_id_idx').on(table.inventoryId),
 }));
 
 // Inventory imports
@@ -275,7 +358,73 @@ export const inventoryImportRows = pgTable('inventory_import_rows', {
   errorMessage: text('error_message'),
   inventoryId: text('inventory_id').references(() => inventory.id),
 }, (table) => ({
-  importIdIdx: index('inventory_import_rows_import_id_idx').on(table.importId),
+    importIdIdx: index('inventory_import_rows_import_id_idx').on(table.importId),
+}));
+
+// Link treatments to recipes (a treatment may optionally have one recipe).
+export const treatmentRecipes = pgTable('treatment_recipes', {
+  id: text('id').primaryKey(),
+  treatmentId: text('treatment_id').notNull().references(() => treatments.id, { onDelete: 'cascade' }).unique(),
+  recipeId: text('recipe_id').notNull().references(() => recipes.id),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (table) => ({
+  treatmentIdIdx: index('treatment_recipes_treatment_id_idx').on(table.treatmentId),
+  recipeIdIdx: index('treatment_recipes_recipe_id_idx').on(table.recipeId),
+}));
+
+// Stock opname (physical stock count) header.
+export const stockOpnames = pgTable('stock_opnames', {
+  id: text('id').primaryKey(),
+  opnameDate: timestamp('opname_date').notNull().defaultNow(),
+  outletId: text('outlet_id').notNull().references(() => outlets.id),
+  status: text('status', { enum: ['DRAFT', 'CONFIRMED'] }).notNull().default('DRAFT'),
+  notes: text('notes'),
+  createdBy: text('created_by').notNull().references(() => users.id),
+  confirmedBy: text('confirmed_by').references(() => users.id),
+  confirmedAt: timestamp('confirmed_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+// Stock opname item lines (system stock vs physical count).
+export const stockOpnameItems = pgTable('stock_opname_items', {
+  id: text('id').primaryKey(),
+  opnameId: text('opname_id').notNull().references(() => stockOpnames.id, { onDelete: 'cascade' }),
+  inventoryId: text('inventory_id').notNull().references(() => inventory.id),
+  systemStock: numeric('system_stock', { precision: 14, scale: 3 }).notNull(),
+  physicalStock: numeric('physical_stock', { precision: 14, scale: 3 }).notNull(),
+  difference: numeric('difference', { precision: 14, scale: 3 }).notNull(),
+  unit: text('unit'),
+}, (table) => ({
+  opnameIdIdx: index('stock_opname_items_opname_id_idx').on(table.opnameId),
+  inventoryIdIdx: index('stock_opname_items_inventory_id_idx').on(table.inventoryId),
+}));
+
+// Bills / receipts (cashier payment record).
+export const bills = pgTable('bills', {
+  id: text('id').primaryKey(),
+  receiptNumber: text('receipt_number').notNull().unique(),
+  bookingId: text('booking_id').references(() => bookings.id),
+  outletId: text('outlet_id').notNull().references(() => outlets.id),
+  customerName: text('customer_name').notNull(),
+  customerPhone: text('customer_phone'),
+  treatmentName: text('treatment_name').notNull(),
+  treatmentPrice: numeric('treatment_price', { precision: 14, scale: 2 }).notNull(),
+  addOns: jsonb('add_ons'),
+  discount: numeric('discount', { precision: 14, scale: 2 }).notNull().default('0'),
+  tax: numeric('tax', { precision: 14, scale: 2 }).notNull().default('0'),
+  serviceCharge: numeric('service_charge', { precision: 14, scale: 2 }).notNull().default('0'),
+  grandTotal: numeric('grand_total', { precision: 14, scale: 2 }).notNull(),
+  paymentMethod: text('payment_method', { enum: ['CASH', 'QRIS', 'CARD', 'TRANSFER', 'OTHER'] }).notNull().default('CASH'),
+  paymentStatus: text('payment_status', { enum: ['UNPAID', 'PAID', 'REFUNDED'] }).notNull().default('UNPAID'),
+  paidAt: timestamp('paid_at'),
+  cashierId: text('cashier_id').notNull().references(() => users.id),
+  notes: text('notes'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => ({
+  bookingIdIdx: index('bills_booking_id_idx').on(table.bookingId),
+  outletIdIdx: index('bills_outlet_id_idx').on(table.outletId),
+  createdAtIdx: index('bills_created_at_idx').on(table.createdAt),
 }));
 
 // Activity logs

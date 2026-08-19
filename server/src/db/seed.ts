@@ -89,13 +89,14 @@ async function seed() {
     role: 'STAFF',
   });
 
-  const staffProfileId = 'staff-3';
+    const staffProfileId = 'staff-3';
   await db.insert(staffProfiles).values({
     id: staffProfileId,
     userId: staffId,
     name: 'Rizal',
     email: 'rizal@dayangspa.com',
     phone: '081234567892',
+    gender: 'Male',
     outletId,
   });
 
@@ -129,10 +130,39 @@ async function seed() {
     outletId,
   });
 
-  // Create cashier staff status
+    // Create cashier staff status
   await db.insert(staffStatus).values({
     id: uuidv4(),
     staffId: cashierStaffId,
+    status: 'FREE',
+    outletId,
+  });
+
+  // Create female staff member (for gender-preference matching demo)
+  const femaleStaffId = 'user-5';
+  const femaleStaffPassword = await bcrypt.hash('ayu123', 10);
+  await db.insert(users).values({
+    id: femaleStaffId,
+    staffId: 'STF002',
+    username: 'ayu',
+    password: femaleStaffPassword,
+    role: 'STAFF',
+  });
+
+  const femaleProfileId = 'staff-5';
+  await db.insert(staffProfiles).values({
+    id: femaleProfileId,
+    userId: femaleStaffId,
+    name: 'Ayu',
+    email: 'ayu@dayangspa.com',
+    phone: '081234567894',
+    gender: 'Female',
+    outletId,
+  });
+
+  await db.insert(staffStatus).values({
+    id: uuidv4(),
+    staffId: femaleProfileId,
     status: 'FREE',
     outletId,
   });
@@ -187,6 +217,7 @@ async function seed() {
   console.log('Developer: developer / developer123');
   console.log('Admin: admin / admin123');
   console.log('Staff: rizal / staff123');
+  console.log('Staff: ayu / ayu123');
   console.log('Cashier: cashier / cashier123');
 }
 

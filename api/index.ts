@@ -20,6 +20,8 @@ import settingsRoutes from '../server/src/routes/settings.js';
 import pushRoutes from '../server/src/routes/push.js';
 import commissionRoutes from '../server/src/routes/commissions.js';
 import settlementRoutes from '../server/src/routes/settlements.js';
+import billRoutes from '../server/src/routes/bills.js';
+import reportRoutes from '../server/src/routes/reports.js';
 
 dotenv.config();
 
@@ -56,6 +58,8 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/push', pushRoutes);
 app.use('/api/commissions', commissionRoutes);
 app.use('/api/settlements', settlementRoutes);
+app.use('/api/bills', billRoutes);
+app.use('/api/reports', reportRoutes);
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

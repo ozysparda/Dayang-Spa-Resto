@@ -14,11 +14,12 @@ router.use(authenticate);
 // GET /api/staff/me - Get current user's staff profile
 router.get('/me', async (req: any, res) => {
   try {
-    const staffProfile = await db.select({
+        const staffProfile = await db.select({
       id: staffProfiles.id,
       name: staffProfiles.name,
       email: staffProfiles.email,
       phone: staffProfiles.phone,
+      gender: staffProfiles.gender,
       isActive: staffProfiles.isActive,
       outletId: staffProfiles.outletId,
       outletName: outlets.name,
@@ -190,11 +191,12 @@ router.get('/', async (req: any, res) => {
     const userOutletId = req.user.outletId;
     const isAdmin = ['ADMIN', 'DEVELOPER'].includes(req.user.role);
 
-    const staffList = await db.select({
+        const staffList = await db.select({
       id: staffProfiles.id,
       name: staffProfiles.name,
       email: staffProfiles.email,
       phone: staffProfiles.phone,
+      gender: staffProfiles.gender,
       isActive: staffProfiles.isActive,
       outletId: staffProfiles.outletId,
       outletName: outlets.name,
@@ -222,11 +224,12 @@ router.get('/', async (req: any, res) => {
 router.get('/:id', async (req: any, res) => {
   try {
     const userOutletId = req.user.outletId;
-    const staff = await db.select({
+        const staff = await db.select({
       id: staffProfiles.id,
       name: staffProfiles.name,
       email: staffProfiles.email,
       phone: staffProfiles.phone,
+      gender: staffProfiles.gender,
       isActive: staffProfiles.isActive,
       outletId: staffProfiles.outletId,
       outletName: outlets.name,
@@ -261,7 +264,7 @@ router.get('/:id', async (req: any, res) => {
 router.post('/', async (req: any, res) => {
   try {
     const userOutletId = req.user.outletId;
-    const { name, email, phone, username, password, role, outletId } = req.body;
+        const { name, email, phone, username, password, role, gender, outletId } = req.body;
 
     if (!name || !username || !password) {
       return res.status(400).json({ message: 'Missing required fields' });
@@ -293,12 +296,13 @@ router.post('/', async (req: any, res) => {
     }).returning();
 
     // Create staff profile
-    const newStaff = await db.insert(staffProfiles).values({
+        const newStaff = await db.insert(staffProfiles).values({
       id: staffId,
       userId,
       name,
       email,
       phone,
+      gender: gender || 'Unspecified',
       outletId: targetOutletId,
       isActive: true,
     }).returning();

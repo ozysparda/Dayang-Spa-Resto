@@ -36,6 +36,7 @@ interface Staff {
   id: string;
   name: string;
   status: string;
+  gender?: string;
 }
 
 export default function Bookings() {
@@ -107,7 +108,7 @@ export default function Bookings() {
     setView('bookings');
     setShowModal(true);
   };
-  const [formData, setFormData] = useState({
+    const [formData, setFormData] = useState({
     customerName: '',
     customerPhone: '',
     treatmentId: '',
@@ -121,6 +122,7 @@ export default function Bookings() {
     commission: 0,
     notes: '',
     status: 'PENDING',
+    preferredGender: 'Any',
   });
 
   // Auto-calculate end time, duration, price, commission when treatment or start time changes
@@ -264,7 +266,7 @@ export default function Bookings() {
     }
 
     try {
-      const payload = {
+            const payload = {
         customerName: formData.customerName,
         customerPhone: formData.customerPhone,
         treatmentId: formData.treatmentId,
@@ -278,6 +280,7 @@ export default function Bookings() {
         notes: formData.notes,
         duration: formData.duration,
         status: formData.status,
+        preferredGender: formData.preferredGender,
       };
       await createBooking('/bookings', 'POST', payload);
       setShowModal(false);
@@ -319,12 +322,15 @@ export default function Bookings() {
       commission: 0,
       notes: '',
       status: 'PENDING',
+      preferredGender: 'Any',
     });
     setAvailabilityError(null);
   };
 
     const getStatusColor = (status: string) => {
     switch (status) {
+            case 'PENDING_PAYMENT':
+        return 'bg-amber-100 text-amber-800';
       case 'CONFIRMED':
         return 'bg-green-100 text-green-800';
       case 'IN_TREATMENT':
@@ -446,7 +452,9 @@ export default function Bookings() {
               <option value="all">All Status</option>
               <option value="PENDING">Pending</option>
               <option value="CONFIRMED">Confirmed</option>
-                            <option value="COMPLETED">Completed</option>
+              <option value="IN_TREATMENT">In Treatment</option>
+              <option value="PENDING_PAYMENT">Pending Payment</option>
+              <option value="COMPLETED">Completed</option>
               <option value="CANCELLED">Cancelled</option>
               <option value="NO_SHOW">No Show</option>
             </select>
@@ -510,6 +518,9 @@ export default function Bookings() {
                         )}
                         {booking.status === 'CONFIRMED' && (
                           <button onClick={() => handleStatusChange(booking.id, 'IN_TREATMENT')} className="text-xs px-2 py-1 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200">Start</button>
+                        )}
+                                 {booking.status === 'IN_TREATMENT' && (
+                          <button onClick={() => handleStatusChange(booking.id, 'PENDING_PAYMENT')} className="text-xs px-2 py-1 bg-amber-100 text-amber-700 rounded hover:bg-amber-200">Mark for Payment</button>
                         )}
                         {(booking.status === 'IN_TREATMENT' || booking.status === 'CONFIRMED') && (
                           <button onClick={() => handleStatusChange(booking.id, 'COMPLETED')} className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200">Complete</button>
@@ -584,12 +595,27 @@ export default function Bookings() {
                   }}
                   className="input-field"
                 >
-                  <option value="">Select treatment</option>
+                                     <option value="">Select treatment</option>
                   {treatments.map((treatment) => (
                     <option key={treatment.id} value={treatment.id}>
                       {treatment.name} - Rp {treatment.price.toLocaleString()} ({treatment.duration} min)
                     </option>
                   ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Preferred Therapist Gender
+                </label>
+                <select
+                  value={formData.preferredGender}
+                  onChange={(e) => setFormData({ ...formData, preferredGender: e.target.value, staffId: '' })}
+                  className="input-field"
+                >
+                  <option value="Any">Any</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
                 </select>
               </div>
 
@@ -604,9 +630,15 @@ export default function Bookings() {
                   className={`input-field ${availabilityError ? 'border-red-500' : ''}`}
                 >
                   <option value="">Select therapist</option>
-                  {staff.map((s) => (
+                  {staff
+                    .filter((s) =>
+                      formData.preferredGender === 'Any'
+                        ? true
+                        : (s as any)?.gender === formData.preferredGender
+                    )
+                    .map((s: any) => (
                     <option key={s.id} value={s.id}>
-                      {s.name} ({s.status})
+                      {s.name}{s.gender && s.gender !== 'Unspecified' ? ` (${s.gender})` : ''} ({s.status})
                     </option>
                   ))}
                 </select>

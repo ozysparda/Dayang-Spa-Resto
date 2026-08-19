@@ -9,6 +9,7 @@ interface Staff {
   name: string;
   email: string;
   phone: string;
+  gender: string;
   username: string;
   role: string;
   status: string;
@@ -36,8 +37,21 @@ export default function Staff() {
     phone: '',
     username: '',
     password: '',
+    gender: 'Unspecified',
     role: 'STAFF',
   });
+
+  const resetForm = () => {
+    setFormData({
+      name: '',
+      email: '',
+      phone: '',
+      username: '',
+      password: '',
+      gender: 'Unspecified',
+      role: 'STAFF',
+    });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,13 +99,14 @@ export default function Staff() {
     }
   };
 
-  const resetForm = () => {
+    const resetForm = () => {
     setFormData({
       name: '',
       email: '',
       phone: '',
       username: '',
       password: '',
+      gender: 'Unspecified',
       role: 'STAFF',
     });
   };
@@ -173,7 +188,8 @@ export default function Staff() {
           <table className="table">
             <thead>
               <tr>
-                <th>Name</th>
+                              <th>Name</th>
+                <th>Gender</th>
                 <th>Username</th>
                 <th>Email</th>
                 <th>Phone</th>
@@ -192,8 +208,9 @@ export default function Staff() {
                 </tr>
               ) : (
                 filteredStaff.map((member) => (
-                  <tr key={member.id}>
+                                    <tr key={member.id}>
                     <td className="font-medium">{member.name}</td>
+                    <td>{member.gender || 'Unspecified'}</td>
                     <td>{member.username}</td>
                     <td>{member.email}</td>
                     <td>{member.phone}</td>
@@ -286,17 +303,33 @@ export default function Staff() {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Phone
-                </label>
-                <input
-                  type="tel"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="input-field"
-                />
-              </div>
+                             <div>
+                 <label className="block text-sm font-medium text-gray-700 mb-1">
+                   Phone
+                 </label>
+                 <input
+                   type="tel"
+                   value={formData.phone}
+                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                   className="input-field"
+                 />
+               </div>
+
+               <div>
+                 <label className="block text-sm font-medium text-gray-700 mb-1">
+                   Gender
+                 </label>
+                 <select
+                   value={formData.gender}
+                   onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
+                   className="input-field"
+                 >
+                   <option value="Male">Male</option>
+                   <option value="Female">Female</option>
+                   <option value="Other">Other</option>
+                   <option value="Unspecified">Unspecified</option>
+                 </select>
+               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">

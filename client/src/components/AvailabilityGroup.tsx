@@ -24,9 +24,14 @@ export default function AvailabilityGroup({ label, color, items, busy, emptyMsg,
               key={`${s.id}-${i}`}
               className={`flex items-center justify-between p-3 ${busy ? 'bg-red-50' : 'bg-green-50'} rounded-lg`}
             >
-              <div>
+                            <div>
                 <div className="flex justify-between">
-                  <span className="font-medium">{s.name}</span>
+                  <span className="font-medium">
+                    {s.name}
+                    {s.gender && s.gender !== 'Unspecified' && (
+                      <span className="text-xs text-gray-500 ml-1">({s.gender})</span>
+                    )}
+                  </span>
                   {s.status && <span className="text-xs text-gray-500 ml-2">{s.status}</span>}
                 </div>
                 {busy && s.bookings && s.bookings.length > 0 && (

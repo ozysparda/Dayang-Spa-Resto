@@ -1,0 +1,5 @@
+OK: server/src/routes/bills.ts
+OK: server/src/routes/reports.ts
+OK: server/src/routes/bookings.ts
+OK: server/src/index.ts
+SYNTAX_ALL_OK=true
