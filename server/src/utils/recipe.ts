@@ -76,11 +76,11 @@ export async function consumeRecipeForTreatment(
       notes: 'Recipe consumption on treatment completion',
     } as any);
 
-    consumed.push({
+        consumed.push({
       inventoryId: ing.inventoryId,
       productName: inv[0].productName,
       consumed: take,
-      unit: inv[0].usageUnit || inv[0].unit || ing.unit,
+      unit: inv[0].usageUnit || inv[0].unit || ing.unit || '',
       beforeStock: before,
       afterStock: after,
     });

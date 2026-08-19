@@ -257,7 +257,7 @@ export const inventory = pgTable('inventory', {
   minimumStock: numeric('minimum_stock', { precision: 14, scale: 3 }),
   purchaseUnit: text('purchase_unit'),
   usageUnit: text('usage_unit'),
-  conversion: numeric('conversion', { precision: 14, scale: 6 }).notNull().default(1),
+    conversion: numeric('conversion', { precision: 14, scale: 6 }).notNull().default('1'),
   purchasePrice: numeric('purchase_price', { precision: 14, scale: 2 }),
   costPerUsageUnit: numeric('cost_per_usage_unit', { precision: 14, scale: 4 }),
   supplier: text('supplier'),

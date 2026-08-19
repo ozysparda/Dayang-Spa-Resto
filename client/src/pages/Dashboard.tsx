@@ -151,7 +151,7 @@ export default function Dashboard() {
     finally { setStatusUpdating(false); }
   };
 
-  const stats = data?.stats || {
+    const stats = data?.stats || {
     bookingsToday: 0,
     staffOnline: 0,
     pendingBookings: 0,
@@ -166,6 +166,9 @@ export default function Dashboard() {
     confirmedBookings: 0,
     inTreatmentBookings: 0,
     completedTreatments: 0,
+    pendingPaymentBookings: 0,
+    cancelledBookings: 0,
+    noShowBookings: 0,
   };
   const staffStatus = data?.staffStatus || [];
   const nextBookings = data?.nextBookings || [];
