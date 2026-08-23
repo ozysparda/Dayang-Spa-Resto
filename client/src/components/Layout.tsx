@@ -3,6 +3,8 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { toast } from 'react-hot-toast';
 import NotificationBell from './NotificationBell';
+import LanguageSwitcher from './LanguageSwitcher';
+import { useLang } from '../stores/languageStore';
 import {
   LayoutDashboard,
   Calendar,
@@ -26,54 +28,55 @@ import {
 } from 'lucide-react';
 
 const staffLinks = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/attendance', icon: Clock, label: 'Attendance' },
-  { to: '/chat', icon: MessageSquare, label: 'Chat' },
-  { to: '/announcements', icon: Megaphone, label: 'Announcements' },
-  { to: '/profile', icon: User, label: 'Profile' },
+  { to: '/dashboard', icon: LayoutDashboard, key: 'dashboard' },
+  { to: '/attendance', icon: Clock, key: 'attendance' },
+  { to: '/chat', icon: MessageSquare, key: 'chat' },
+  { to: '/announcements', icon: Megaphone, key: 'announcements' },
+  { to: '/profile', icon: User, key: 'profile' },
 ];
 
 const adminLinks = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/bookings', icon: Calendar, label: 'Bookings' },
-  { to: '/staff', icon: Users, label: 'Staff' },
-  { to: '/attendance', icon: Clock, label: 'Attendance' },
-  { to: '/treatments', icon: FlaskConical, label: 'Treatments' },
-  { to: '/treatment-input', icon: ClipboardList, label: 'Treatment Input' },
-  { to: '/inventory', icon: Package, label: 'Inventory' },
-  { to: '/commissions', icon: DollarSign, label: 'Commissions' },
-  { to: '/reports', icon: BarChart3, label: 'Reports' },
-  { to: '/chat', icon: MessageSquare, label: 'Chat' },
-  { to: '/announcements', icon: Megaphone, label: 'Announcements' },
-  { to: '/profile', icon: User, label: 'Profile' },
+  { to: '/dashboard', icon: LayoutDashboard, key: 'dashboard' },
+  { to: '/bookings', icon: Calendar, key: 'bookings' },
+  { to: '/staff', icon: Users, key: 'staff' },
+  { to: '/attendance', icon: Clock, key: 'attendance' },
+  { to: '/treatments', icon: FlaskConical, key: 'treatments' },
+  { to: '/treatment-input', icon: ClipboardList, key: 'treatment-input' },
+  { to: '/inventory', icon: Package, key: 'inventory' },
+  { to: '/commissions', icon: DollarSign, key: 'commissions' },
+  { to: '/reports', icon: BarChart3, key: 'reports' },
+  { to: '/chat', icon: MessageSquare, key: 'chat' },
+  { to: '/announcements', icon: Megaphone, key: 'announcements' },
+  { to: '/profile', icon: User, key: 'profile' },
 ];
 
 const cashierLinks = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/settlement', icon: Receipt, label: 'Settlement' },
-  { to: '/bookings', icon: Calendar, label: 'Bookings' },
-  { to: '/commissions', icon: DollarSign, label: 'Commissions' },
-  { to: '/attendance', icon: Clock, label: 'Attendance' },
-  { to: '/chat', icon: MessageSquare, label: 'Chat' },
-  { to: '/announcements', icon: Megaphone, label: 'Announcements' },
-  { to: '/profile', icon: User, label: 'Profile' },
+  { to: '/dashboard', icon: LayoutDashboard, key: 'dashboard' },
+  { to: '/settlement', icon: Receipt, key: 'settlement' },
+  { to: '/bookings', icon: Calendar, key: 'bookings' },
+  { to: '/commissions', icon: DollarSign, key: 'commissions' },
+  { to: '/attendance', icon: Clock, key: 'attendance' },
+  { to: '/chat', icon: MessageSquare, key: 'chat' },
+  { to: '/announcements', icon: Megaphone, key: 'announcements' },
+  { to: '/profile', icon: User, key: 'profile' },
 ];
 
 const developerLinks = [
   ...adminLinks,
-  { to: '/users', icon: UserPlus, label: 'Users' },
-  { to: '/outlets', icon: MapPin, label: 'Outlets' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
+  { to: '/users', icon: UserPlus, key: 'users' },
+  { to: '/outlets', icon: MapPin, key: 'outlets' },
+  { to: '/settings', icon: Settings, key: 'settings' },
 ];
 
 export default function Layout() {
   const { user, logout } = useAuthStore();
+  const { t } = useLang();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const handleLogout = () => {
     logout();
-    toast.success('Logged out successfully');
+    toast.success(t('logout.success'));
     navigate('/login', { replace: true });
   };
 
@@ -97,11 +100,16 @@ export default function Layout() {
     <div className="flex h-screen bg-gray-50">
       {/* Mobile header */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-30 flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200">
-        <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-600" aria-label="Open menu">
+        <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-600" aria-label={t('aria.openMenu')}>
           <Menu className="w-6 h-6" />
         </button>
-        <h1 className="text-lg font-bold text-primary-600">Dayang Spa</h1>
-        <NotificationBell />
+        <div className="flex items-center gap-3">
+          <h1 className="text-lg font-bold text-primary-600">{t('app.name')}</h1>
+        </div>
+        <div className="flex items-center gap-2">
+          <LanguageSwitcher compact />
+          <NotificationBell />
+        </div>
       </div>
 
       {/* Sidebar overlay (mobile) */}
@@ -114,10 +122,10 @@ export default function Layout() {
         <div className="p-6 border-b border-gray-200">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-xl font-bold text-primary-600">Dayang Spa</h1>
-              <p className="text-sm text-gray-500 mt-1">Management System</p>
+              <h1 className="text-xl font-bold text-primary-600">{t('app.name')}</h1>
+              <p className="text-sm text-gray-500 mt-1">{t('app.tagline')}</p>
             </div>
-            <button onClick={() => setSidebarOpen(false)} className="md:hidden p-1 rounded-lg hover:bg-gray-100 text-gray-500" aria-label="Close menu">
+            <button onClick={() => setSidebarOpen(false)} className="md:hidden p-1 rounded-lg hover:bg-gray-100 text-gray-500" aria-label={t('aria.closeMenu')}>
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -139,7 +147,7 @@ export default function Layout() {
                   }
                 >
                   <link.icon className="w-5 h-5" />
-                  <span>{link.label}</span>
+                  <span>{t(`nav.${link.key}`)}</span>
                 </NavLink>
               </li>
             ))}
@@ -147,6 +155,9 @@ export default function Layout() {
         </nav>
 
         <div className="p-4 border-t border-gray-200">
+          <div className="mb-3">
+            <LanguageSwitcher />
+          </div>
           <div className="mb-3">
             <p className="font-medium text-sm">{user?.name}</p>
             <p className="text-xs text-gray-500">{user?.outletName}</p>
@@ -159,7 +170,7 @@ export default function Layout() {
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
           >
             <LogOut className="w-4 h-4" />
-            Logout
+            {t('logout')}
           </button>
         </div>
       </aside>

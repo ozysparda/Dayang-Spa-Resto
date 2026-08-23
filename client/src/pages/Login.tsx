@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
+import { useLang } from '../stores/languageStore';
+import LanguageSwitcher from '../components/LanguageSwitcher';
 import api from '../services/api';
 import { toast } from 'react-hot-toast';
 import { usePushNotifications } from '../hooks/usePushNotifications';
@@ -10,6 +12,7 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuthStore();
+  const { t } = useLang();
   const navigate = useNavigate();
   const { ensurePermission, subscribe } = usePushNotifications();
 
@@ -21,7 +24,7 @@ export default function Login() {
       const response = await api.post('/auth/login', { staffId, password });
       const { user, token } = response.data;
       login(user, token);
-      toast.success('Login successful!');
+      toast.success(t('login.success'));
 
       const vapidResponse = await api.get('/push/vapid-public-key').catch(() => null);
       if (vapidResponse?.data?.publicKey) {
@@ -31,7 +34,7 @@ export default function Login() {
 
       navigate('/dashboard');
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Login failed');
+      toast.error(error.response?.data?.message || t('login.failed'));
     } finally {
       setLoading(false);
     }
@@ -42,17 +45,20 @@ export default function Login() {
       <div className="max-w-md w-full space-y-8">
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            Dayang Spa Management
+            {t('login.title')}
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
-            Sign in to your account
+            {t('login.subtitle')}
           </p>
+          <div className="mt-2 flex justify-center">
+            <LanguageSwitcher />
+          </div>
         </div>
         <form className="mt-8 space-y-6 card" onSubmit={handleSubmit}>
           <div className="space-y-4">
             <div>
               <label htmlFor="staffId" className="label">
-                Staff ID / Username
+                {t('login.staffId')}
               </label>
               <input
                 id="staffId"
@@ -66,7 +72,7 @@ export default function Login() {
             </div>
             <div>
               <label htmlFor="password" className="label">
-                Password
+                {t('login.password')}
               </label>
               <input
                 id="password"
@@ -85,7 +91,7 @@ export default function Login() {
             disabled={loading}
             className="w-full btn btn-primary"
           >
-            {loading ? 'Signing in...' : 'Sign in'}
+            {loading ? t('login.signingIn') : t('login.signIn')}
           </button>
         </form>
       </div>

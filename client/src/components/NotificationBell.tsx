@@ -3,6 +3,7 @@ import { Bell } from 'lucide-react';
 import { api } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { usePushNotifications } from '../hooks/usePushNotifications';
+import { useLang } from '../stores/languageStore';
 
 interface Notif {
   id: string;
@@ -29,12 +30,12 @@ const routeForType = (n: Notif): string | null => {
   return null;
 };
 
-const typeLabel = (type?: string) => {
+const typeLabel = (type: string | undefined, t: (key: string) => string) => {
   if (!type) return '';
-  if (type.includes('BOOKING')) return 'New Booking';
-  if (type === 'TREATMENT_ASSIGNED') return 'Treatment Assigned';
-  if (type === 'ANNOUNCEMENT') return 'Announcement';
-  if (type === 'SYSTEM') return 'System';
+  if (type.includes('BOOKING')) return t('notif.types.newBooking');
+  if (type === 'TREATMENT_ASSIGNED') return t('notif.types.treatmentAssigned');
+  if (type === 'ANNOUNCEMENT') return t('notif.types.announcement');
+  if (type === 'SYSTEM') return t('notif.types.system');
   return type.replace(/_/g, ' ');
 };
 
@@ -44,6 +45,7 @@ export default function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const { t } = useLang();
   const notifsRef = useRef<Notif[]>([]);
   const { permission, subscribed, subscribe, ensurePermission } = usePushNotifications();
   const [pushAvailable, setPushAvailable] = useState(true);
@@ -90,7 +92,7 @@ export default function NotificationBell() {
       if (!n.isRead && !shownNative.has(n.id)) {
         shownNative.add(n.id);
         try {
-          const notif = new Notification(n.title || 'Dayang Spa Resto', { body: n.message, icon: '/vite.svg' });
+          const notif = new Notification(n.title || t('app.name'), { body: n.message, icon: '/vite.svg' });
           notif.onclick = () => { const r = routeForType(n); if (r) navigate(r, { replace: true }); };
         } catch {}
       }
@@ -142,7 +144,7 @@ export default function NotificationBell() {
       <button
         onClick={() => { if (!open) fetchNotifications(); setOpen(!open); }}
         className="relative p-2 rounded-lg hover:bg-gray-100 text-gray-600 touch-target"
-        aria-label="Notifications"
+        aria-label={t('notif.title')}
       >
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
@@ -155,36 +157,36 @@ export default function NotificationBell() {
       {open && (
         <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-lg shadow-lg border border-gray-200 z-50 flex flex-col max-h-[80vh]">
           <div className="flex items-center justify-between px-4 py-3 border-b">
-            <h3 className="font-semibold text-gray-900">Notifications</h3>
+            <h3 className="font-semibold text-gray-900">{t('notif.title')}</h3>
             {unreadCount > 0 && (
-              <button onClick={markAllRead} className="text-xs text-blue-600 hover:underline">Mark all as read</button>
+              <button onClick={markAllRead} className="text-xs text-blue-600 hover:underline">{t('notif.markAllRead')}</button>
             )}
           </div>
 
           {/* Permission / push status banners */}
           {permission === 'denied' && (
             <div className="p-3 mx-3 my-2 bg-yellow-50 border border-yellow-200 rounded-lg text-xs">
-              <p className="font-medium text-yellow-800">🔕 Notifications are blocked</p>
-              <p className="text-yellow-700">Allow notifications for Dayang Spa in your browser settings to receive treatment assignments and booking alerts.</p>
+              <p className="font-medium text-yellow-800">{t('notif.blocked')}</p>
+              <p className="text-yellow-700">{t('notif.blockedDesc')}</p>
             </div>
           )}
           {permission === 'default' && (
             <div className="p-3 mx-3 my-2 bg-blue-50 border border-blue-200 rounded-lg text-xs">
-              <p className="font-medium text-blue-800 mb-2">Turn on alerts?</p>
-              <p className="text-blue-700 mb-2">Get a browser notification when you're assigned a new treatment.</p>
-              <button onClick={enableNotifications} className="btn-xs btn-primary touch-target">Enable notifications</button>
+              <p className="font-medium text-blue-800 mb-2">{t('notif.turnOn')}</p>
+              <p className="text-blue-700 mb-2">{t('notif.turnOnDesc')}</p>
+              <button onClick={enableNotifications} className="btn-xs btn-primary touch-target">{t('notif.enable')}</button>
             </div>
           )}
           {permission === 'granted' && !pushAvailable && (
             <div className="p-3 mx-3 my-2 bg-gray-50 border border-gray-200 rounded-lg text-xs">
-              <p className="font-medium text-gray-700">📭 In-app notifications active</p>
-              <p className="text-gray-500">Push requires server VAPID config; you'll still get a browser alert while this tab is open.</p>
+              <p className="font-medium text-gray-700">{t('notif.inappActive')}</p>
+              <p className="text-gray-500">{t('notif.inappDesc')}</p>
             </div>
           )}
 
           <div className="overflow-y-auto flex-1">
             {notifications.length === 0 ? (
-              <div className="p-4 text-center text-gray-500 text-sm">No notifications</div>
+              <div className="p-4 text-center text-gray-500 text-sm">{t('notif.empty')}</div>
             ) : (
               notifications.map((n) => (
                 <button
@@ -195,7 +197,7 @@ export default function NotificationBell() {
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className="text-sm font-medium text-gray-900">{n.title}</p>
-                      <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{typeLabel(n.type)} — {n.message}</p>
+                      <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{typeLabel(n.type, t)} — {n.message}</p>
                       <p className="text-xs text-gray-400 mt-1">{fmtDate(n.createdAt)} · {fmtTime(n.createdAt)}</p>
                     </div>
                     {!n.isRead && <span className="w-2 h-2 bg-red-500 rounded-full flex-shrink-0 mt-1" />}

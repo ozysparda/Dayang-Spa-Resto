@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Calendar, Users, Clock, Activity, UserCheck, MessageSquare, Bell, User, DollarSign, Receipt } from 'lucide-react';
 import { useParallelFetch, useAsyncMutation } from '../hooks/useAsyncData';
 import { useAuthStore } from '../stores/authStore';
+import { useLang } from '../stores/languageStore';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
@@ -97,6 +98,7 @@ const STATUS_OPTIONS = [
 
 export default function Dashboard() {
   const { user } = useAuthStore();
+  const { t } = useLang();
   const navigate = useNavigate();
   const updateStatus = useAsyncMutation();
   const [myStatus, setMyStatus] = useState('');
@@ -145,7 +147,7 @@ export default function Dashboard() {
     try {
       await updateStatus('/staff/my-status', 'PATCH', { status });
       setMyStatus(status);
-      toast.success('Status updated');
+      toast.success(t('dash.statusUpdated'));
       refetch();
     } catch (e) {}
     finally { setStatusUpdating(false); }
@@ -216,7 +218,7 @@ export default function Dashboard() {
   if (loading) {
     return (
       <div className="p-8">
-        <div className="text-center">Loading...</div>
+        <div className="text-center">{t('dash.loading')}</div>
       </div>
     );
   }
@@ -229,7 +231,7 @@ export default function Dashboard() {
     return (
       <div className="p-4 md:p-8 max-w-4xl mx-auto">
                 <div className="mb-8">
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Hi, {user.name}</h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{t('dash.hi', { name: user.name })}</h1>
           <p className="text-gray-500 mt-1">{todayLabel}</p>
           <p className="text-sm text-gray-400 mt-1">{now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</p>
         </div>
@@ -241,7 +243,7 @@ export default function Dashboard() {
                 <Activity className="w-6 h-6 text-purple-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-600">Treatments Today</p>
+                <p className="text-sm text-gray-600">{t('dash.treatmentsToday')}</p>
                 <p className="text-2xl font-bold text-gray-900">{completedToday}</p>
               </div>
             </div>
@@ -252,7 +254,7 @@ export default function Dashboard() {
                 <DollarSign className="w-6 h-6 text-green-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-600">Today's Commission</p>
+                <p className="text-sm text-gray-600">{t('dash.todayCommission')}</p>
                 <p className="text-2xl font-bold text-gray-900">Rp {todayCommission.toLocaleString('id-ID')}</p>
               </div>
             </div>
@@ -263,8 +265,8 @@ export default function Dashboard() {
                 <Clock className="w-6 h-6 text-blue-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-600">Attendance</p>
-                <button onClick={() => navigate('/attendance')} className="text-blue-600 hover:underline text-sm font-medium">Open</button>
+                <p className="text-sm text-gray-600">{t('dash.attendance')}</p>
+                <button onClick={() => navigate('/attendance')} className="text-blue-600 hover:underline text-sm font-medium">{t('dash.opened')}</button>
               </div>
             </div>
           </div>
@@ -273,9 +275,9 @@ export default function Dashboard() {
         <div className="card mb-6">
           <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
             <UserCheck className="w-5 h-5" />
-            My Availability
+            {t('dash.myAvailability')}
           </h2>
-          <p className="text-sm text-gray-500 mb-3">Current status: <span className="font-medium text-gray-900">{getStatusLabel(myStatus)}</span></p>
+          <p className="text-sm text-gray-500 mb-3">{t('dash.currentStatus')} <span className="font-medium text-gray-900">{getStatusLabel(myStatus)}</span></p>
           <div className="flex flex-wrap gap-2">
             {STATUS_OPTIONS.map((option) => (
               <button
@@ -297,13 +299,13 @@ export default function Dashboard() {
         <div className="card mb-6">
           <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
             <Calendar className="w-5 h-5" />
-            Today's Schedule
+            {t('dash.todaySchedule')}
           </h2>
           {myTodayBookings.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               <Calendar className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-              <p className="font-medium">No bookings scheduled for today</p>
-              <p className="text-sm mt-1">You are currently <span className="font-medium">{getStatusLabel(myStatus).toLowerCase()}</span></p>
+              <p className="font-medium">{t('dash.noBookingsToday')}</p>
+              <p className="text-sm mt-1">{t('dash.youAreCurrently')} <span className="font-medium">{getStatusLabel(myStatus).toLowerCase()}</span></p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -318,9 +320,9 @@ export default function Dashboard() {
                         {booking.status}
                       </span>
                     </div>
-                    <p className="font-medium text-gray-900">{booking.treatmentName || 'Treatment'}</p>
-                    <p className="text-sm text-gray-600">Customer: {booking.customerName}</p>
-                    <p className="text-sm text-gray-500">Room: {booking.room}</p>
+                    <p className="font-medium text-gray-900">{booking.treatmentName || t('dash.treatment')}</p>
+                    <p className="text-sm text-gray-600">{t('dash.customer', { name: booking.customerName })}</p>
+                    <p className="text-sm text-gray-500">{t('dash.room', { room: booking.room })}</p>
                   </div>
                 </div>
               ))}
@@ -331,10 +333,10 @@ export default function Dashboard() {
         <div className="card mb-6">
           <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
             <Clock className="w-5 h-5" />
-            Upcoming Treatment
+            {t('dash.upcomingTreatment')}
           </h2>
           {nextBookings.length === 0 ? (
-            <p className="text-gray-500 text-center py-4">No upcoming treatments</p>
+            <p className="text-gray-500 text-center py-4">{t('dash.noUpcoming')}</p>
           ) : (
             <div className="space-y-3">
               {nextBookings.slice(0, 3).map((booking) => (
@@ -356,19 +358,19 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <button onClick={() => navigate('/announcements')} className="card hover:shadow-md transition-shadow text-center">
             <Bell className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-            <p className="font-medium text-gray-900 text-sm">Announcements</p>
+            <p className="font-medium text-gray-900 text-sm">{t('dash.announcements')}</p>
           </button>
           <button onClick={() => navigate('/chat')} className="card hover:shadow-md transition-shadow text-center">
             <MessageSquare className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-            <p className="font-medium text-gray-900 text-sm">Chat</p>
+            <p className="font-medium text-gray-900 text-sm">{t('dash.chat')}</p>
           </button>
           <button onClick={() => navigate('/profile')} className="card hover:shadow-md transition-shadow text-center">
             <User className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-            <p className="font-medium text-gray-900 text-sm">Profile</p>
+            <p className="font-medium text-gray-900 text-sm">{t('dash.profile')}</p>
           </button>
           <button onClick={() => navigate('/attendance')} className="card hover:shadow-md transition-shadow text-center">
             <Clock className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-            <p className="font-medium text-gray-900 text-sm">Attendance</p>
+            <p className="font-medium text-gray-900 text-sm">{t('dash.attendance')}</p>
           </button>
         </div>
       </div>
@@ -379,8 +381,8 @@ export default function Dashboard() {
   return (
     <div className="p-4 md:p-8">
       <div className="mb-8">
-        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Admin Dashboard</h1>
-        <p className="text-gray-500 mt-1">Overview of your outlet</p>
+        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">{t('dash.adminTitle')}</h1>
+        <p className="text-gray-500 mt-1">{t('dash.adminSubtitle')}</p>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
@@ -390,7 +392,7 @@ export default function Dashboard() {
               <Calendar className="w-6 h-6 text-blue-600" />
             </div>
             <div>
-              <p className="text-sm text-gray-600">Today's Bookings</p>
+              <p className="text-sm text-gray-600">{t('dash.todayBookings')}</p>
               <p className="text-2xl font-bold text-gray-900">{stats.bookingsToday}</p>
             </div>
           </div>
@@ -401,7 +403,7 @@ export default function Dashboard() {
               <UserCheck className="w-6 h-6 text-green-600" />
             </div>
             <div>
-              <p className="text-sm text-gray-600">Staff Online</p>
+              <p className="text-sm text-gray-600">{t('dash.staffOnline')}</p>
               <p className="text-2xl font-bold text-gray-900">{stats.staffOnline}</p>
             </div>
           </div>
@@ -412,7 +414,7 @@ export default function Dashboard() {
               <Clock className="w-6 h-6 text-yellow-600" />
             </div>
             <div>
-              <p className="text-sm text-gray-600">Pending</p>
+              <p className="text-sm text-gray-600">{t('dash.pending')}</p>
               <p className="text-2xl font-bold text-gray-900">{stats.pendingBookings}</p>
             </div>
           </div>
@@ -423,7 +425,7 @@ export default function Dashboard() {
               <Users className="w-6 h-6 text-purple-600" />
             </div>
             <div>
-              <p className="text-sm text-gray-600">Available</p>
+              <p className="text-sm text-gray-600">{t('dash.available')}</p>
               <p className="text-2xl font-bold text-gray-900">{stats.availableTherapists}</p>
             </div>
           </div>
@@ -434,7 +436,7 @@ export default function Dashboard() {
               <UserCheck className="w-6 h-6 text-yellow-600" />
             </div>
             <div>
-              <p className="text-sm text-gray-600">In-Charge</p>
+              <p className="text-sm text-gray-600">{t('dash.inCharge')}</p>
               <p className="text-2xl font-bold text-gray-900">{stats.inChargeStaff}</p>
             </div>
           </div>
@@ -445,7 +447,7 @@ export default function Dashboard() {
               <Clock className="w-6 h-6 text-red-600" />
             </div>
             <div>
-              <p className="text-sm text-gray-600">Busy</p>
+              <p className="text-sm text-gray-600">{t('dash.busy')}</p>
               <p className="text-2xl font-bold text-gray-900">{stats.busyStaff}</p>
             </div>
           </div>
@@ -456,7 +458,7 @@ export default function Dashboard() {
               <Users className="w-6 h-6 text-gray-600" />
             </div>
             <div>
-              <p className="text-sm text-gray-600">Off-Air</p>
+              <p className="text-sm text-gray-600">{t('dash.offAir')}</p>
               <p className="text-2xl font-bold text-gray-900">{stats.offAirStaff}</p>
             </div>
           </div>
@@ -467,7 +469,7 @@ export default function Dashboard() {
         <div className="card">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Confirmed</p>
+              <p className="text-sm text-gray-500">{t('dash.confirmed')}</p>
               <p className="text-2xl font-bold text-blue-600">{stats.confirmedBookings}</p>
             </div>
             <Calendar className="w-8 h-8 text-blue-600 opacity-50" />
@@ -476,7 +478,7 @@ export default function Dashboard() {
                 <div className="card">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">In-Treatment</p>
+              <p className="text-sm text-gray-500">{t('dash.inTreatment')}</p>
               <p className="text-2xl font-bold text-red-600">{stats.inTreatmentBookings}</p>
             </div>
             <Clock className="w-8 h-8 text-red-600 opacity-50" />
@@ -485,7 +487,7 @@ export default function Dashboard() {
         <div className="card">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Pending Payment</p>
+              <p className="text-sm text-gray-500">{t('dash.pendingPayment')}</p>
               <p className="text-2xl font-bold text-amber-600">{stats.pendingPaymentBookings || 0}</p>
             </div>
             <Receipt className="w-8 h-8 text-amber-600 opacity-50" />
@@ -494,7 +496,7 @@ export default function Dashboard() {
         <div className="card">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Completed</p>
+              <p className="text-sm text-gray-500">{t('dash.completed')}</p>
               <p className="text-2xl font-bold text-green-600">{stats.completedTreatments}</p>
             </div>
             <Activity className="w-8 h-8 text-green-600 opacity-50" />
@@ -503,7 +505,7 @@ export default function Dashboard() {
         <div className="card">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Today's Revenue</p>
+              <p className="text-sm text-gray-500">{t('dash.todayRevenue')}</p>
               <p className="text-2xl font-bold text-green-600">Rp {stats.todayRevenue.toLocaleString('id-ID')}</p>
             </div>
             <DollarSign className="w-8 h-8 text-green-600 opacity-50" />
@@ -512,7 +514,7 @@ export default function Dashboard() {
         <div className="card">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Today's Commission</p>
+              <p className="text-sm text-gray-500">{t('dash.todayCommission')}</p>
               <p className="text-2xl font-bold text-purple-600">Rp {stats.todayCommission.toLocaleString('id-ID')}</p>
             </div>
             <DollarSign className="w-8 h-8 text-purple-600 opacity-50" />
@@ -524,11 +526,11 @@ export default function Dashboard() {
         <div className="card lg:col-span-1">
           <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
             <UserCheck className="w-5 h-5" />
-            Staff Availability
+            {t('dash.staffAvailability')}
           </h2>
           <div className="space-y-3">
             {staffStatus.length === 0 ? (
-              <p className="text-gray-500 text-sm">No staff data available</p>
+              <p className="text-gray-500 text-sm">{t('dash.noStaffData')}</p>
             ) : (
               staffStatus.map((staff) => {
                 const statusEmoji = {
@@ -555,7 +557,7 @@ export default function Dashboard() {
                       <div className="mt-3 pt-3 border-t border-gray-200 space-y-1">
                         <p className="text-sm font-medium text-gray-700">{staff.currentTreatment}</p>
                         {staff.currentCustomer && (
-                          <p className="text-xs text-gray-600">Customer: {staff.currentCustomer}</p>
+                          <p className="text-xs text-gray-600">{t('dash.customer', { name: staff.currentCustomer })}</p>
                         )}
                         {staff.startTime && staff.endTime && (
                           <p className="text-xs text-gray-600">
@@ -571,7 +573,7 @@ export default function Dashboard() {
                               const end = new Date(staff.endTime);
                               const diff = end.getTime() - now.getTime();
                               const mins = Math.max(0, Math.ceil(diff / (1000 * 60)));
-                              return `${mins} minute${mins !== 1 ? 's' : ''} remaining`;
+                              return t('dash.minutesRemaining', { n: mins });
                             })()}
                           </p>
                         )}
@@ -586,11 +588,11 @@ export default function Dashboard() {
         <div className="card lg:col-span-1">
           <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
             <Calendar className="w-5 h-5" />
-            Next Bookings
+            {t('dash.nextBookings')}
           </h2>
           <div className="space-y-3">
             {nextBookings.length === 0 ? (
-              <p className="text-gray-500 text-sm">No upcoming bookings</p>
+              <p className="text-gray-500 text-sm">{t('dash.noUpcomingBookings')}</p>
             ) : (
               nextBookings.slice(0, 5).map((booking) => (
                 <div key={booking.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
@@ -612,11 +614,11 @@ export default function Dashboard() {
         <div className="card lg:col-span-1">
           <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
             <Activity className="w-5 h-5" />
-            Recent Activity
+            {t('dash.recentActivity')}
           </h2>
           <div className="space-y-3">
             {activities.length === 0 ? (
-              <p className="text-gray-500 text-sm">No recent activity</p>
+              <p className="text-gray-500 text-sm">{t('dash.noRecentActivity')}</p>
             ) : (
               activities.map((activity) => (
                 <div key={activity.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
