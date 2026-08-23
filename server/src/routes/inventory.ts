@@ -52,7 +52,13 @@ router.get('/', async (req: any, res) => {
 });
 
 // GET /api/inventory/:id - Get single inventory item
-router.get('/:id', async (req: any, res) => {
+// UUID format guard: lets named sub-routes (/low-stock, /summary, /movements,
+// /imports, /suppliers, /recipes) registered later fall through instead of
+// being swallowed by this :id handler (Express matches in registration order).
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+router.get('/:id', async (req: any, res, next) => {
+  if (!UUID_RE.test(req.params.id)) return next();
   try {
     const userOutletId = req.user.outletId;
     const item = await db.select()
@@ -916,16 +922,32 @@ router.post('/opnames/:id/confirm', async (req: any, res) => {
     if (!opname.length) return res.status(404).json({ message: 'Opname not found' });
     if (opname[0].status === 'CONFIRMED') return res.status(400).json({ message: 'Opname already confirmed' });
 
-    const items = await db
+        const items = await db
       .select()
       .from(stockOpnameItems)
       .where(eq(stockOpnameItems.opnameId, req.params.id));
 
-    // Optional: accept updated physical counts in the body and persist before apply
-    const updates = req.body?.items || {};
+    // Accept updated physical counts in the body and persist them before applying,
+    // so the client can edit physical counts during a stocktake and have the
+    // differences actually carried through on confirm.
+    const bodyItems = (Array.isArray(req.body?.items) ? req.body.items : []) as Array<{
+      inventoryId: string;
+      physicalStock?: any;
+    }>;
+    const updatesByInv = new Map(bodyItems.map((u: any) => [u.inventoryId, u]));
     for (const it of items) {
       const inv = await db.select().from(inventory).where(eq(inventory.id, it.inventoryId)).limit(1);
       if (!inv.length) continue;
+      const upd: any = updatesByInv.get(it.inventoryId);
+      if (upd) {
+        const physical = num(upd.physicalStock ?? it.systemStock);
+        await db
+          .update(stockOpnameItems)
+          .set({ physicalStock: String(physical), difference: String(physical - num(it.systemStock)) })
+          .where(eq(stockOpnameItems.id, it.id));
+        it.physicalStock = String(physical);
+        it.difference = String(physical - num(it.systemStock));
+      }
       await recordMovement(inv[0], 'OPNAME', num(it.difference), req.params.id, 'Stock opname confirmation');
     }
 
