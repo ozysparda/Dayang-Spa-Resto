@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { User, Mail, Phone, Lock } from 'lucide-react';
 import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
+import { useLang } from '../stores/languageStore';
 import toast from 'react-hot-toast';
 
 interface UserProfile {
@@ -18,6 +19,7 @@ interface UserProfile {
 export default function Profile() {
   const { data: profileData, loading, error, refetch } = useAsyncData<UserProfile>('/auth/me');
   const changePassword = useAsyncMutation();
+  const { t } = useLang();
   const profile = profileData;
 
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -35,12 +37,12 @@ export default function Profile() {
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
     if (passwordData.newPassword !== passwordData.confirmPassword) {
-      toast.error('New passwords do not match');
+      toast.error(t('profile.pwMismatch'));
       return;
     }
 
     if (passwordData.newPassword.length < 6) {
-      toast.error('Password must be at least 6 characters');
+      toast.error(t('profile.pwTooShort'));
       return;
     }
 
@@ -55,11 +57,11 @@ export default function Profile() {
         newPassword: '',
         confirmPassword: '',
       });
-      toast.success('Password changed successfully');
+      toast.success(t('profile.pwChanged'));
       // Refetch profile to update any cached data
       refetch();
     } catch (error: any) {
-      const message = error.response?.data?.message || 'Failed to change password';
+      const message = error.response?.data?.message || t('profile.pwFailed');
       toast.error(message);
     }
   };
@@ -67,7 +69,7 @@ export default function Profile() {
   if (loading) {
     return (
       <div className="p-8">
-        <div className="text-center">Loading profile...</div>
+        <div className="text-center">{t('profile.loadingProfile')}</div>
       </div>
     );
   }
@@ -76,10 +78,10 @@ export default function Profile() {
     return (
       <div className="p-8">
         <div className="text-center text-red-600">
-          <p className="mb-4">Failed to load profile</p>
-          <p className="text-sm text-gray-500 mb-4">{error || 'Please try again'}</p>
+          <p className="mb-4">{t('profile.loadFailed')}</p>
+          <p className="text-sm text-gray-500 mb-4">{error || t('profile.retry')}</p>
           <button onClick={refetch} className="btn-primary">
-            Retry
+            {t('profile.retry')}
           </button>
         </div>
       </div>
@@ -88,17 +90,17 @@ export default function Profile() {
 
   return (
     <div className="p-8">
-      <h1 className="text-3xl font-bold text-gray-900 mb-8">My Profile</h1>
+      <h1 className="text-3xl font-bold text-gray-900 mb-8">{t('profile.title')}</h1>
 
       <div className="max-w-2xl">
         {/* Profile Information */}
         <div className="card mb-6">
-          <h2 className="text-xl font-semibold mb-4">Profile Information</h2>
+          <h2 className="text-xl font-semibold mb-4">{t('profile.info')}</h2>
           <div className="space-y-4">
             <div className="flex items-center gap-3">
               <User className="w-5 h-5 text-gray-400" />
               <div>
-                <p className="text-sm text-gray-600">Name</p>
+                <p className="text-sm text-gray-600">{t('profile.name')}</p>
                 <p className="font-medium text-gray-900">{profile.name}</p>
               </div>
             </div>
@@ -106,16 +108,16 @@ export default function Profile() {
             <div className="flex items-center gap-3">
               <Mail className="w-5 h-5 text-gray-400" />
               <div>
-                <p className="text-sm text-gray-600">Email</p>
-                <p className="font-medium text-gray-900">{profile.email || 'Not set'}</p>
+                <p className="text-sm text-gray-600">{t('profile.email')}</p>
+                <p className="font-medium text-gray-900">{profile.email || t('profile.notSet')}</p>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
               <Phone className="w-5 h-5 text-gray-400" />
               <div>
-                <p className="text-sm text-gray-600">Phone</p>
-                <p className="font-medium text-gray-900">{profile.phone || 'Not set'}</p>
+                <p className="text-sm text-gray-600">{t('profile.phone')}</p>
+                <p className="font-medium text-gray-900">{profile.phone || t('profile.notSet')}</p>
               </div>
             </div>
 
@@ -130,7 +132,7 @@ export default function Profile() {
             <div className="flex items-center gap-3">
               <Lock className="w-5 h-5 text-gray-400" />
               <div>
-                <p className="text-sm text-gray-600">Role</p>
+                <p className="text-sm text-gray-600">{t('profile.role')}</p>
                 <p className="font-medium text-gray-900">{profile.role}</p>
               </div>
             </div>
@@ -138,8 +140,8 @@ export default function Profile() {
             <div className="flex items-center gap-3">
               <Lock className="w-5 h-5 text-gray-400" />
               <div>
-                <p className="text-sm text-gray-600">Outlet</p>
-                <p className="font-medium text-gray-900">{profile.outletName || 'Not assigned'}</p>
+                <p className="text-sm text-gray-600">{t('profile.outlet')}</p>
+                <p className="font-medium text-gray-900">{profile.outletName || t('profile.notAssigned')}</p>
               </div>
             </div>
           </div>
@@ -147,12 +149,12 @@ export default function Profile() {
 
         {/* Change Password */}
         <div className="card">
-          <h2 className="text-xl font-semibold mb-4">Change Password</h2>
+          <h2 className="text-xl font-semibold mb-4">{t('profile.changePassword')}</h2>
           <button
             onClick={() => setShowPasswordModal(true)}
             className="btn-primary"
           >
-            Change Password
+            {t('profile.changePassword')}
           </button>
         </div>
       </div>
@@ -161,11 +163,11 @@ export default function Profile() {
       {showPasswordModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
-            <h2 className="text-2xl font-bold mb-4">Change Password</h2>
+            <h2 className="text-2xl font-bold mb-4">{t('profile.changePassword')}</h2>
             <form onSubmit={handlePasswordChange} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Current Password
+                  {t('profile.currentPassword')}
                 </label>
                 <input
                   type="password"
@@ -178,7 +180,7 @@ export default function Profile() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  New Password
+                  {t('profile.newPassword')}
                 </label>
                 <input
                   type="password"
@@ -191,7 +193,7 @@ export default function Profile() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Confirm New Password
+                  {t('profile.confirmNewPassword')}
                 </label>
                 <input
                   type="password"
@@ -204,14 +206,14 @@ export default function Profile() {
 
               <div className="flex gap-3 pt-4">
                 <button type="submit" className="btn-primary flex-1">
-                  Change Password
+                  {t('profile.changePassword')}
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowPasswordModal(false)}
                   className="btn-secondary flex-1"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
               </div>
             </form>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Plus, Bell, Check } from 'lucide-react';
 import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
 import { useAuthStore } from '../stores/authStore';
+import { useLang } from '../stores/languageStore';
 import toast from 'react-hot-toast';
 
 interface Announcement {
@@ -17,6 +18,7 @@ export default function Announcements() {
   const { data: announcementsData, loading, refetch } = useAsyncData<Announcement[]>('/announcements');
   const announcements = announcementsData || [];
   const { user } = useAuthStore();
+  const { t } = useLang();
   const isAdmin = ['ADMIN', 'DEVELOPER'].includes(user?.role || '');
   const createAnnouncement = useAsyncMutation();
   const markAsRead = useAsyncMutation();
@@ -39,10 +41,10 @@ export default function Announcements() {
       setShowModal(false);
       fetchAnnouncements();
       resetForm();
-      toast.success('Announcement created successfully');
+      toast.success(t('ann.created'));
     } catch (error: any) {
       console.error('Failed to create announcement:', error);
-      toast.error('Failed to create announcement');
+      toast.error(t('ann.createFailed'));
     }
   };
 
@@ -50,10 +52,10 @@ export default function Announcements() {
     try {
       await markAsRead(`/announcements/${id}/read`, 'POST');
       fetchAnnouncements();
-      toast.success('Marked as read');
+      toast.success(t('ann.markedRead'));
     } catch (error: any) {
       console.error('Failed to mark as read:', error);
-      toast.error('Failed to mark as read');
+      toast.error(t('ann.markReadFailed'));
     }
   };
 
@@ -80,7 +82,7 @@ export default function Announcements() {
   if (loading) {
     return (
       <div className="p-8">
-        <div className="text-center">Loading...</div>
+        <div className="text-center">{t('common.loading')}</div>
       </div>
     );
   }
@@ -89,14 +91,14 @@ export default function Announcements() {
     <div className="p-8">
 
       <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Announcements</h1>
+        <h1 className="text-3xl font-bold text-gray-900">{t('ann.title')}</h1>
         {isAdmin && (
           <button
             onClick={() => setShowModal(true)}
             className="btn-primary flex items-center gap-2"
           >
             <Plus className="w-5 h-5" />
-            New Announcement
+            {t('ann.new')}
           </button>
         )}
       </div>
@@ -105,7 +107,7 @@ export default function Announcements() {
       <div className="space-y-4">
         {announcements.length === 0 ? (
           <div className="card text-center py-8 text-gray-500">
-            No announcements yet
+            {t('ann.empty')}
           </div>
         ) : (
           announcements.map((announcement) => (
@@ -119,12 +121,12 @@ export default function Announcements() {
                     <Bell className="w-5 h-5 text-gray-400" />
                     <h3 className="text-lg font-semibold text-gray-900">{announcement.title}</h3>
                     {!announcement.isRead && (
-                      <span className="bg-blue-600 text-white text-xs rounded-full px-2 py-1">New</span>
+                      <span className="bg-blue-600 text-white text-xs rounded-full px-2 py-1">{t('ann.badgeNew')}</span>
                     )}
                   </div>
                   <p className="text-gray-700 mb-3 whitespace-pre-wrap">{announcement.content}</p>
                   <div className="flex items-center gap-4 text-sm text-gray-500">
-                    <span>By {announcement.creatorName}</span>
+                    <span>{t('ann.by', { name: announcement.creatorName })}</span>
                     <span>{formatDate(announcement.createdAt)}</span>
                   </div>
                 </div>
@@ -132,7 +134,7 @@ export default function Announcements() {
                   <button
                     onClick={() => handleMarkAsRead(announcement.id)}
                     className="ml-4 text-blue-600 hover:text-blue-800"
-                    title="Mark as read"
+                    title={t('ann.markedRead')}
                   >
                     <Check className="w-5 h-5" />
                   </button>
@@ -147,11 +149,11 @@ export default function Announcements() {
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-6 max-w-2xl w-full">
-            <h2 className="text-2xl font-bold mb-4">New Announcement</h2>
+            <h2 className="text-2xl font-bold mb-4">{t('ann.new')}</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Title
+                  {t('common.title')}
                 </label>
                 <input
                   type="text"
@@ -164,7 +166,7 @@ export default function Announcements() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Content
+                  {t('common.content')}
                 </label>
                 <textarea
                   required
@@ -177,14 +179,14 @@ export default function Announcements() {
 
               <div className="flex gap-3 pt-4">
                 <button type="submit" className="btn-primary flex-1">
-                  Post Announcement
+                  {t('ann.post')}
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
                   className="btn-secondary flex-1"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
               </div>
             </form>

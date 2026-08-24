@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Plus, Search, MapPin, Phone } from 'lucide-react';
 import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
+import { useLang } from '../stores/languageStore';
 import toast from 'react-hot-toast';
 
 interface Outlet {
@@ -14,6 +15,7 @@ interface Outlet {
 export default function Outlets() {
   const { data: outletsData, loading, refetch } = useAsyncData<Outlet[]>('/outlets');
   const createOutlet = useAsyncMutation();
+  const { t } = useLang();
 
   const outlets = outletsData || [];
 
@@ -32,10 +34,10 @@ export default function Outlets() {
       setShowModal(false);
       refetch();
       resetForm();
-      toast.success('Outlet created successfully');
+      toast.success(t('outlets.created'));
     } catch (error: any) {
       console.error('Failed to create outlet:', error);
-      toast.error('Failed to create outlet');
+      toast.error(t('outlets.createFailed'));
     }
   };
 
@@ -55,7 +57,7 @@ export default function Outlets() {
   if (loading) {
     return (
       <div className="p-8">
-        <div className="text-center">Loading...</div>
+        <div className="text-center">{t('common.loading')}</div>
       </div>
     );
   }
@@ -63,7 +65,7 @@ export default function Outlets() {
   return (
     <div className="p-8">
       <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Outlets</h1>
+        <h1 className="text-3xl font-bold text-gray-900">{t('outlets.title')}</h1>
         <button
           onClick={() => {
             resetForm();
@@ -72,7 +74,7 @@ export default function Outlets() {
           className="btn-primary flex items-center gap-2"
         >
           <Plus className="w-5 h-5" />
-          Add Outlet
+          {t('outlets.add')}
         </button>
       </div>
 
@@ -82,7 +84,7 @@ export default function Outlets() {
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
           <input
             type="text"
-            placeholder="Search outlets..."
+            placeholder={t('outlets.searchPlaceholder')}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="input-field pl-10"
@@ -94,7 +96,7 @@ export default function Outlets() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredOutlets.length === 0 ? (
           <div className="col-span-full text-center py-8 text-gray-500">
-            No outlets found
+            {t('outlets.empty')}
           </div>
         ) : (
           filteredOutlets.map((outlet) => (
@@ -104,7 +106,7 @@ export default function Outlets() {
                 <span className={`px-3 py-1 rounded-full text-xs font-medium ${
                   outlet.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                 }`}>
-                  {outlet.isActive ? 'Active' : 'Inactive'}
+                  {outlet.isActive ? t('outlets.active') : t('outlets.inactive')}
                 </span>
               </div>
               <div className="space-y-2 text-sm text-gray-600">
@@ -126,11 +128,11 @@ export default function Outlets() {
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
-            <h2 className="text-2xl font-bold mb-4">Add New Outlet</h2>
+            <h2 className="text-2xl font-bold mb-4">{t('outlets.addNew')}</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Outlet Name
+                  {t('settings.outletName')}
                 </label>
                 <input
                   type="text"
@@ -143,7 +145,7 @@ export default function Outlets() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Address
+                  {t('common.address')}
                 </label>
                 <textarea
                   required
@@ -156,7 +158,7 @@ export default function Outlets() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Phone
+                  {t('common.phone')}
                 </label>
                 <input
                   type="tel"
@@ -169,14 +171,14 @@ export default function Outlets() {
 
               <div className="flex gap-3 pt-4">
                 <button type="submit" className="btn-primary flex-1">
-                  Add Outlet
+                  {t('outlets.add')}
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
                   className="btn-secondary flex-1"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
               </div>
             </form>

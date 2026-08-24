@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Settings as SettingsIcon, Save } from 'lucide-react';
 import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
+import { useLang } from '../stores/languageStore';
 import toast from 'react-hot-toast';
 
 interface SystemSettings {
@@ -16,6 +17,7 @@ interface SystemSettings {
 export default function SystemSettings() {
   const { data: settingsData, loading } = useAsyncData<SystemSettings>('/settings');
   const updateSettings = useAsyncMutation();
+  const { t } = useLang();
 
   const settings = settingsData;
   const [saving, setSaving] = useState(false);
@@ -46,7 +48,7 @@ export default function SystemSettings() {
     setSaving(true);
     try {
       await updateSettings('/settings', 'PATCH', formData);
-      toast.success('Settings saved successfully');
+      toast.success(t('settings.saved'));
     } catch (error: any) {
       console.error('Failed to save settings:', error);
     } finally {
@@ -57,26 +59,26 @@ export default function SystemSettings() {
   if (loading) {
     return (
       <div className="p-8">
-        <div className="text-center">Loading...</div>
+        <div className="text-center">{t('common.loading')}</div>
       </div>
     );
   }
 
   return (
     <div className="p-8">
-      <h1 className="text-3xl font-bold text-gray-900 mb-8">System Settings</h1>
+      <h1 className="text-3xl font-bold text-gray-900 mb-8">{t('settings.title')}</h1>
 
       <div className="max-w-2xl">
         <div className="card">
           <div className="flex items-center gap-2 mb-6">
             <SettingsIcon className="w-6 h-6 text-gray-400" />
-            <h2 className="text-xl font-semibold">General Settings</h2>
+            <h2 className="text-xl font-semibold">{t('settings.general')}</h2>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Outlet Name
+                {t('settings.outletName')}
               </label>
               <input
                 type="text"
@@ -88,7 +90,7 @@ export default function SystemSettings() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Outlet Address
+                {t('settings.outletAddress')}
               </label>
               <textarea
                 value={formData.outletAddress}
@@ -100,7 +102,7 @@ export default function SystemSettings() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Outlet Phone
+                {t('settings.outletPhone')}
               </label>
               <input
                 type="tel"
@@ -112,7 +114,7 @@ export default function SystemSettings() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Operating Hours
+                {t('settings.operatingHours')}
               </label>
               <input
                 type="text"
@@ -126,7 +128,7 @@ export default function SystemSettings() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Currency
+                  {t('settings.currency')}
                 </label>
                 <select
                   value={formData.currency}
@@ -141,7 +143,7 @@ export default function SystemSettings() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Timezone
+                  {t('settings.timezone')}
                 </label>
                 <select
                   value={formData.timezone}
@@ -162,7 +164,7 @@ export default function SystemSettings() {
                 className="btn-primary flex items-center gap-2 disabled:opacity-50"
               >
                 <Save className="w-5 h-5" />
-                {saving ? 'Saving...' : 'Save Settings'}
+                {saving ? t('common.saving') : t('settings.save')}
               </button>
             </div>
           </form>
