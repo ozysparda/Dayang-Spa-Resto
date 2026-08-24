@@ -104,6 +104,7 @@ export default function Dashboard() {
   const [myStatus, setMyStatus] = useState('');
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [now, setNow] = useState(new Date());
+  const [statusFilter, setStatusFilter] = useState('ALL');
 
   const todayStr = new Date().toISOString().split('T')[0];
 
@@ -214,6 +215,70 @@ export default function Dashboard() {
     const d = new Date(dateString);
     return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   };
+
+  // A staff member without a staff_status row is treated as OFF.
+  const normalizeStatus = (s: StaffStatus) => s.status || 'OFF';
+
+  const renderStaffCard = (staff: StaffStatus) => {
+    const statusEmoji = {
+      'FREE': '🟢',
+      'IN_CHARGE': '🟡',
+      'IN_TREATMENT': '🔴',
+      'ON_BREAK': '☕',
+      'OFF': '⚫'
+    }[staff.status] || '⚪';
+
+    return (
+      <div key={staff.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+        <div className="flex items-start justify-between mb-2">
+          <div className="flex-1">
+            <p className="font-semibold text-gray-900">{staff.name}</p>
+            <p className="text-xs text-gray-500">{staff.outletName}</p>
+          </div>
+          <span className={"px-3 py-1 rounded-full text-xs font-medium border " + getStatusColor(staff.status)}>
+            {statusEmoji} {getStatusLabel(staff.status)}
+          </span>
+        </div>
+
+        {staff.status === 'IN_TREATMENT' && staff.currentTreatment && (
+          <div className="mt-3 pt-3 border-t border-gray-200 space-y-1">
+            <p className="text-sm font-medium text-gray-700">{staff.currentTreatment}</p>
+            {staff.currentCustomer && (
+              <p className="text-xs text-gray-600">{t('dash.customer', { name: staff.currentCustomer })}</p>
+            )}
+            {staff.startTime && staff.endTime && (
+              <p className="text-xs text-gray-600">
+                Time: {formatTime(staff.startTime)} - {formatTime(staff.endTime)}
+              </p>
+            )}
+            {staff.room && (
+              <p className="text-xs text-gray-600">Room: {staff.room}</p>
+            )}
+            {staff.endTime && (
+              <p className="text-xs font-medium text-red-600 mt-1">
+                {(() => {
+                  const end = new Date(staff.endTime);
+                  const diff = end.getTime() - now.getTime();
+                  const mins = Math.max(0, Math.ceil(diff / (1000 * 60)));
+                  return t('dash.minutesRemaining', { n: mins });
+                })()}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const filteredStaff = staffStatus.filter((s) => normalizeStatus(s) === statusFilter);
+
+  const availabilityGroups = [
+    { value: 'FREE', label: t('dash.available'), emoji: '🟢' },
+    { value: 'IN_CHARGE', label: t('dash.inCharge'), emoji: '🟡' },
+    { value: 'IN_TREATMENT', label: t('dash.busy'), emoji: '🔴' },
+    { value: 'ON_BREAK', label: t('dash.break'), emoji: '☕' },
+    { value: 'OFF', label: t('dash.offAir'), emoji: '⚫' },
+  ];
 
   if (loading) {
     return (
@@ -528,60 +593,60 @@ export default function Dashboard() {
             <UserCheck className="w-5 h-5" />
             {t('dash.staffAvailability')}
           </h2>
-          <div className="space-y-3">
+          <div>
+            {/* Status filter tabs with counts */}
+            <div className="flex flex-wrap gap-1.5 mb-4">
+              {[
+                { value: 'ALL', label: t('dash.all'), emoji: '👥' },
+                ...availabilityGroups,
+              ].map(({ value, label, emoji }) => {
+                const count = value === 'ALL'
+                  ? staffStatus.length
+                  : staffStatus.filter((s) => normalizeStatus(s) === value).length;
+                const active = statusFilter === value;
+                return (
+                  <button
+                    key={value}
+                    onClick={() => setStatusFilter(value)}
+                    className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                      active
+                        ? 'bg-gray-900 text-white border-gray-900'
+                        : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-100'
+                    }`}
+                  >
+                    {emoji} {label}
+                    <span className={active ? 'text-gray-200' : 'text-gray-400'}> ({count})</span>
+                  </button>
+                );
+              })}
+            </div>
+
             {staffStatus.length === 0 ? (
               <p className="text-gray-500 text-sm">{t('dash.noStaffData')}</p>
-            ) : (
-              staffStatus.map((staff) => {
-                const statusEmoji = {
-                  'FREE': '🟢',
-                  'IN_CHARGE': '🟡',
-                  'IN_TREATMENT': '🔴',
-                  'ON_BREAK': '☕',
-                  'OFF': '⚫'
-                }[staff.status] || '⚪';
-
-                return (
-                  <div key={staff.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex-1">
-                        <p className="font-semibold text-gray-900">{staff.name}</p>
-                        <p className="text-xs text-gray-500">{staff.outletName}</p>
+            ) : statusFilter === 'ALL' ? (
+              <div className="space-y-4">
+                {availabilityGroups.map(({ value, label, emoji }) => {
+                  const group = staffStatus.filter((s) => normalizeStatus(s) === value);
+                  if (group.length === 0) return null;
+                  return (
+                    <div key={value}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                          {emoji} {label}
+                        </p>
+                        <span className="text-xs text-gray-400">{group.length}</span>
                       </div>
-                      <span className={"px-3 py-1 rounded-full text-xs font-medium border " + getStatusColor(staff.status)}>
-                        {statusEmoji} {getStatusLabel(staff.status)}
-                      </span>
+                      <div className="space-y-3">
+                        {group.map(renderStaffCard)}
+                      </div>
                     </div>
-
-                    {staff.status === 'IN_TREATMENT' && staff.currentTreatment && (
-                      <div className="mt-3 pt-3 border-t border-gray-200 space-y-1">
-                        <p className="text-sm font-medium text-gray-700">{staff.currentTreatment}</p>
-                        {staff.currentCustomer && (
-                          <p className="text-xs text-gray-600">{t('dash.customer', { name: staff.currentCustomer })}</p>
-                        )}
-                        {staff.startTime && staff.endTime && (
-                          <p className="text-xs text-gray-600">
-                            Time: {formatTime(staff.startTime)} - {formatTime(staff.endTime)}
-                          </p>
-                        )}
-                        {staff.room && (
-                          <p className="text-xs text-gray-600">Room: {staff.room}</p>
-                        )}
-                        {staff.endTime && (
-                          <p className="text-xs font-medium text-red-600 mt-1">
-                            {(() => {
-                              const end = new Date(staff.endTime);
-                              const diff = end.getTime() - now.getTime();
-                              const mins = Math.max(0, Math.ceil(diff / (1000 * 60)));
-                              return t('dash.minutesRemaining', { n: mins });
-                            })()}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {filteredStaff.map(renderStaffCard)}
+              </div>
             )}
           </div>
         </div>

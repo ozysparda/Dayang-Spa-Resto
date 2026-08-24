@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Plus, Search, Edit, Trash2 } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Calculator, X } from 'lucide-react';
 import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
+import { api } from '../services/api';
 import toast from 'react-hot-toast';
 
 interface Treatment {
@@ -14,6 +15,27 @@ interface Treatment {
   isActive: boolean;
 }
 
+interface HppItem {
+  inventoryId: string;
+  productName: string;
+  quantity: number;
+  unit: string;
+  costPerUnit: number;
+  lineCost: number;
+}
+
+interface HppData {
+  treatmentId: string;
+  treatmentName: string;
+  price: number;
+  materialCost: number;
+  materialItems: HppItem[];
+  materialRatio: number;
+  commission: number;
+  commissionPercent: number;
+  grossMargin: number;
+}
+
 export default function Treatments() {
   const { data: treatmentsData, loading, refetch } = useAsyncData<Treatment[]>('/treatments');
   const createTreatment = useAsyncMutation();
@@ -25,6 +47,21 @@ export default function Treatments() {
   const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [editingTreatment, setEditingTreatment] = useState<Treatment | null>(null);
+  const [hppData, setHppData] = useState<HppData | null>(null);
+  const [hppLoading, setHppLoading] = useState(false);
+
+  const loadHpp = async (treatmentId: string) => {
+    setHppLoading(true);
+    try {
+      const res = await api.get(`/treatments/${treatmentId}/hpp`);
+      setHppData(res.data);
+    } catch (error) {
+      console.error('Failed to fetch treatment HPP:', error);
+      toast.error('Failed to fetch HPP');
+    } finally {
+      setHppLoading(false);
+    }
+  };
     const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -145,6 +182,13 @@ export default function Treatments() {
               <div className="flex justify-between items-start mb-3">
                 <h3 className="text-lg font-semibold text-gray-900">{treatment.name}</h3>
                 <div className="flex gap-2">
+                  <button
+                    onClick={() => loadHpp(treatment.id)}
+                    title="View HPP / material cost"
+                    className="text-green-600 hover:text-green-800"
+                  >
+                    <Calculator className="w-4 h-4" />
+                  </button>
                   <button
                     onClick={() => handleEdit(treatment)}
                     className="text-blue-600 hover:text-blue-800"
@@ -277,6 +321,85 @@ export default function Treatments() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* HPP / Material Cost Modal */}
+      {hppData && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-lg w-full max-h-[85vh] overflow-y-auto">
+            <div className="flex justify-between items-start mb-4">
+              <h2 className="text-xl font-bold text-gray-900">HPP — {hppData.treatmentName}</h2>
+              <button onClick={() => setHppData(null)} className="text-gray-500 hover:text-gray-800">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {hppLoading ? (
+              <p className="text-sm text-gray-500">Loading...</p>
+            ) : (
+              <>
+                {/* Material breakdown */}
+                <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2">
+                  Material Consumption (Treatment Recipe)
+                </h3>
+                {hppData.materialItems.length === 0 ? (
+                  <p className="text-sm text-gray-500 mb-4">
+                    No recipe linked to this treatment yet. Link a recipe in Inventory → Recipes.
+                  </p>
+                ) : (
+                  <table className="table mb-4 text-sm">
+                    <thead>
+                      <tr>
+                        <th>Item</th>
+                        <th className="text-right">Qty</th>
+                        <th className="text-right">Cost/Unit</th>
+                        <th className="text-right">Cost</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {hppData.materialItems.map((it) => (
+                        <tr key={it.inventoryId}>
+                          <td>{it.productName}</td>
+                          <td className="text-right">{it.quantity} {it.unit}</td>
+                          <td className="text-right">{it.costPerUnit.toLocaleString()}</td>
+                          <td className="text-right font-medium">Rp {it.lineCost.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+
+                {/* Cost structure */}
+                <div className="border-t pt-3 space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Treatment price</span>
+                    <span className="font-semibold">Rp {hppData.price.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Material cost (HPP bahan)</span>
+                    <span className="font-medium text-red-600">− Rp {hppData.materialCost.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">
+                      Staff commission ({hppData.commissionPercent}%)
+                    </span>
+                    <span className="font-medium text-amber-600">− Rp {hppData.commission.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between border-t pt-2 text-base">
+                    <span className="font-semibold text-gray-900">Estimated gross margin</span>
+                    <span className={`font-bold ${hppData.grossMargin >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      Rp {hppData.grossMargin.toLocaleString()}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    Material cost ratio: {hppData.materialRatio}% of price. Commission is kept
+                    separate from material (inventory) cost.
+                  </p>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

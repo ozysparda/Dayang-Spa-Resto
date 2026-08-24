@@ -5,7 +5,7 @@ import { bookings, staffStatus, treatments, staffProfiles, outlets, users, notif
 import { eq, and, gte, lt, lte, desc, sql, or, ne } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { dispatchPushToUser } from '../routes/push.js';
-import { consumeRecipeForTreatment } from '../utils/recipe.js';
+import { consumeRecipeForTreatment, recordInventoryReconciliation } from '../utils/recipe.js';
 
 // Utility: add minutes to a Date/string timestamp, correctly handling day boundaries.
 function addMinutes(startTime: string | Date, minutes: number): Date {
@@ -513,8 +513,13 @@ router.patch('/:id', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
     }
 
         // Auto-set actualStartTime when a treatment actually begins.
+    // NOTE: must be a real Date object — drizzle's timestamp mapper calls
+    // .toISOString() on the value; an ISO *string* here crashes the update
+    // with "value.toISOString is not a function" (500).
     if (updates.status === 'IN_TREATMENT' && !updates.actualStartTime) {
-      updates.actualStartTime = new Date().toISOString();
+      updates.actualStartTime = new Date();
+    } else if (typeof updates.actualStartTime === 'string') {
+      updates.actualStartTime = new Date(updates.actualStartTime);
     }
 
     // Update booking
@@ -619,7 +624,10 @@ router.patch('/:id', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
             recordedBy: req.user.id,
           });
 
-          // Consume raw materials linked to this treatment via its recipe.
+          // Consume raw materials linked to this treatment via its recipe. If
+          // the consumption fails the booking is already COMPLETED and must NOT
+          // be rolled back; surface a PENDING_RECONCILIATION marker instead so
+          // an admin can top-up stock + retry idempotently.
           try {
             await consumeRecipeForTreatment(
               existingBooking[0].treatmentId,
@@ -627,7 +635,14 @@ router.patch('/:id', authorize('ADMIN', 'DEVELOPER'), async (req: any, res) => {
               txId,
             );
           } catch (recipeErr) {
-            console.error('Recipe consumption failed (non-blocking):', recipeErr);
+            await recordInventoryReconciliation({
+              bookingId: existingBooking[0].id,
+              treatmentId: existingBooking[0].treatmentId,
+              outletId: existingBooking[0].outletId,
+              referenceId: txId,
+              reason: recipeErr instanceof Error ? recipeErr.message : String(recipeErr),
+            });
+            console.error('Recipe consumption failed - reconciliation recorded:', recipeErr);
           }
         }
       } catch (txError) {

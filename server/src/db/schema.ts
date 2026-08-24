@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, integer, numeric, jsonb, index } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, boolean, integer, numeric, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // Outlets (must be defined first as other tables reference it)
@@ -245,9 +245,24 @@ export const announcementReads = pgTable('announcement_reads', {
 // Inventory
 export const inventory = pgTable('inventory', {
   id: text('id').primaryKey(),
-  sku: text('sku').notNull().unique(),
+  // SKU is unique PER OUTLET (not globally): the same physical product can be
+  // stocked at multiple outlets, each row carrying its own balance + ledger.
+  sku: text('sku').notNull(),
   productName: text('product_name').notNull(),
   category: text('category'),
+  // Business type of the inventory item: which domain it belongs to in a SPA
+  // operation. BAHAN_TREATMENT = raw materials consumed by treatments,
+  // CONSUMABLE = tissue/cotton/gloves, RETAIL = products sold directly,
+  // REUSABLE = towel/bedsheet/bathrobe (laundered, not consumed), OTHER.
+  itemType: text('item_type', {
+    enum: ['BAHAN_TREATMENT', 'CONSUMABLE', 'RETAIL', 'REUSABLE', 'OTHER'],
+  }).notNull().default('OTHER'),
+  // Reusable items (towel/bedsheet/bathrobe) are laundered, not consumed.
+  // `quantity` stays unchanged by recipe consumption for these items; instead
+  // the reusable lifecycle is tracked with the two counters below.
+  isReusable: boolean('is_reusable').notNull().default(false),
+  reusableAvailable: numeric('reusable_available', { precision: 14, scale: 3 }).notNull().default('0'),
+  reusableInUse: numeric('reusable_in_use', { precision: 14, scale: 3 }).notNull().default('0'),
   quantity: integer('quantity').notNull().default(0),
   unit: text('unit'),
   cost: numeric('cost', { precision: 10, scale: 2 }),
@@ -268,6 +283,8 @@ export const inventory = pgTable('inventory', {
 }, (table) => ({
   skuIdx: index('inventory_sku_idx').on(table.sku),
   outletIdIdx: index('inventory_outlet_id_idx').on(table.outletId),
+  // Enforce one row per (SKU, outlet) pair.
+  skuOutletUnique: uniqueIndex('inventory_sku_outlet_unique').on(table.sku, table.outletId),
 }));
 
 // Suppliers (raw-material vendors)
@@ -290,7 +307,10 @@ export const inventoryMovements = pgTable('inventory_movements', {
   inventoryId: text('inventory_id').notNull().references(() => inventory.id, { onDelete: 'cascade' }),
   outletId: text('outlet_id').notNull().references(() => outlets.id),
   type: text('type', {
-    enum: ['IN', 'OUT', 'ADJUSTMENT', 'RECIPE_CONSUMPTION', 'OPENING', 'OPNAME', 'REVERSAL'],
+    enum: [
+      'IN', 'OUT', 'ADJUSTMENT', 'RECIPE_CONSUMPTION', 'OPENING', 'OPNAME', 'REVERSAL',
+      'PURCHASE', 'RETAIL_SALE', 'WASTE', 'RETURN', 'TRANSFER',
+    ],
   }).notNull(),
   quantity: numeric('quantity', { precision: 14, scale: 3 }).notNull(),
   unit: text('unit'),
@@ -397,6 +417,33 @@ export const stockOpnameItems = pgTable('stock_opname_items', {
 }, (table) => ({
   opnameIdIdx: index('stock_opname_items_opname_id_idx').on(table.opnameId),
   inventoryIdIdx: index('stock_opname_items_inventory_id_idx').on(table.inventoryId),
+}));
+
+// Inventory reconciliation queue — records recipe-consumption attempts that
+// FAILED (e.g. insufficient stock). The treatment stays COMPLETED; an admin
+// must resolve the pending row (retry) so the ledger is never silently missing
+// a deduction. Retry is idempotent: after a successful resolving run, the
+// RECIPE_CONSUMPTION ledger rows for the same referenceId exist and the guard
+// in consumeRecipeForTreatment prevents a second deduction.
+export const inventoryReconciliations = pgTable('inventory_reconciliations', {
+  id: text('id').primaryKey(),
+  bookingId: text('booking_id').references(() => bookings.id),
+  treatmentId: text('treatment_id').notNull().references(() => treatments.id),
+  outletId: text('outlet_id').notNull().references(() => outlets.id),
+  // The treatment-transaction id used as the movement referenceId; keeps a
+  // retry idempotent with the RECIPE_CONSUMPTION ledger.
+  referenceId: text('reference_id'),
+  reason: text('reason'),
+  status: text('status', {
+    enum: ['PENDING_RECONCILIATION', 'RESOLVED'],
+  }).notNull().default('PENDING_RECONCILIATION'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  resolvedAt: timestamp('resolved_at'),
+  resolvedBy: text('resolved_by').references(() => users.id),
+}, (table) => ({
+  outletIdIdx: index('inventory_reconciliations_outlet_id_idx').on(table.outletId),
+  statusIdx: index('inventory_reconciliations_status_idx').on(table.status),
+  referenceIdIdx: index('inventory_reconciliations_reference_id_idx').on(table.referenceId),
 }));
 
 // Bills / receipts (cashier payment record).

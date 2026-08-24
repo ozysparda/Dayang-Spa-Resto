@@ -4,6 +4,7 @@ import { db } from '../db/index.js';
 import {
   inventory,
   inventoryMovements,
+  inventoryReconciliations,
   suppliers,
   recipes,
   recipeItems,
@@ -13,9 +14,11 @@ import {
   inventoryImports,
   inventoryImportRows,
   outlets,
+  treatments,
   activityLogs,
 } from '../db/schema.js';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { resolveInventoryReconciliation } from '../utils/recipe.js';
+import { eq, and, desc, gte, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import Papa from 'papaparse';
 
@@ -88,6 +91,8 @@ router.post('/', async (req: any, res) => {
       sku,
       productName,
       category,
+      itemType,
+      isReusable,
       quantity,
       unit,
       cost,
@@ -106,10 +111,12 @@ router.post('/', async (req: any, res) => {
       return res.status(400).json({ message: 'SKU and product name are required' });
     }
 
-    // Check if SKU already exists
-    const existingItem = await db.select().from(inventory).where(eq(inventory.sku, sku)).limit(1);
+    // Check if SKU already exists in this outlet (SKU is unique per outlet).
+    const existingItem = await db.select().from(inventory)
+      .where(and(eq(inventory.sku, sku), eq(inventory.outletId, userOutletId)))
+      .limit(1);
     if (existingItem.length > 0) {
-      return res.status(400).json({ message: 'SKU already exists' });
+      return res.status(400).json({ message: 'SKU already exists in this outlet' });
     }
 
     const id = uuidv4();
@@ -118,6 +125,10 @@ router.post('/', async (req: any, res) => {
       sku,
       productName,
       category,
+      itemType: itemType ?? 'OTHER',
+      isReusable: itemType === 'REUSABLE' ? true : !!isReusable,
+      reusableAvailable: 0,
+      reusableInUse: 0,
       quantity: quantity ?? 0,
       unit,
       cost,
@@ -438,24 +449,38 @@ function num(value: any): number {
   return Number.isNaN(n) ? 0 : n;
 }
 
-// Write an immutable movement row AND mutate the inventory balance in `quantity`.
-// `delta` is expressed in the item's usage_unit (what `quantity` counts).
-async function recordMovement(
+// Core ledger application on an explicit transaction client — used directly
+// by multi-step flows (transfer) that need several movements to be atomic.
+async function applyMovement(
+  tx: any,
   inv: any,
-  type: 'IN' | 'OUT' | 'ADJUSTMENT' | 'RECIPE_CONSUMPTION' | 'OPENING' | 'OPNAME' | 'REVERSAL',
+  type: Parameters<typeof recordMovement>[1],
   delta: number,
   refId: string | undefined,
   notes?: string,
+  referenceType?: string,
 ) {
-  if (Math.abs(delta) < 1e-9) return;
   const before = num(inv?.quantity);
-  const after = Math.round((before + delta) * 1000) / 1000;
-  await db
-    .update(inventory)
-    .set({ quantity: Math.round(after), lastUpdated: new Date() })
-    .where(eq(inventory.id, inv.id));
-
-  await db.insert(inventoryMovements).values({
+  let updated: { quantity: number }[];
+  if (delta < 0) {
+    updated = await tx
+      .update(inventory)
+      .set({ quantity: sql`${inventory.quantity} + ${delta}`, lastUpdated: new Date() })
+      .where(and(eq(inventory.id, inv.id), gte(inventory.quantity, Math.abs(delta))))
+      .returning({ quantity: inventory.quantity });
+    if (!updated.length) {
+      throw new Error(`INSUFFICIENT_STOCK:${inv.productName ?? inv.id}`);
+    }
+  } else {
+    updated = await tx
+      .update(inventory)
+      .set({ quantity: Math.round((before + delta) * 1000) / 1000, lastUpdated: new Date() })
+      .where(eq(inventory.id, inv.id))
+      .returning({ quantity: inventory.quantity });
+    if (!updated.length) throw new Error('INVENTORY_ROW_MISSING');
+  }
+  const actualAfter = num(updated[0].quantity);
+  await tx.insert(inventoryMovements).values({
     id: uuidv4(),
     inventoryId: inv.id,
     outletId: inv.outletId,
@@ -463,10 +488,37 @@ async function recordMovement(
     quantity: delta,
     unit: inv.usageUnit || inv.unit,
     beforeStock: before,
-    afterStock: after,
+    afterStock: actualAfter,
+    referenceType,
     referenceId: refId,
     notes,
   } as any);
+}
+
+// Write an immutable movement row AND mutate the inventory balance in `quantity`
+// inside ONE database transaction — no partial updates possible.
+// `delta` is expressed in the item's usage_unit (what `quantity` counts).
+// Negative deltas are guarded at the SQL level: the decrement only applies when
+// sufficient stock exists, otherwise INSUFFICIENT_STOCK is thrown and the whole
+// transaction rolls back.
+async function recordMovement(
+  inv: any,
+  type: 'IN' | 'OUT' | 'ADJUSTMENT' | 'RECIPE_CONSUMPTION' | 'OPENING' | 'OPNAME' | 'REVERSAL'
+    | 'PURCHASE' | 'RETAIL_SALE' | 'WASTE' | 'RETURN' | 'TRANSFER',
+  delta: number,
+  refId: string | undefined,
+  notes?: string,
+  referenceType?: string,
+) {
+  if (Math.abs(delta) < 1e-9) return;
+  await db.transaction(async (tx) => {
+    await applyMovement(tx, inv, type, delta, refId, notes, referenceType);
+  });
+}
+
+/** Map a ledger failure to the right HTTP status (400 for stock issues). */
+function isStockGuardError(err: unknown): boolean {
+  return String((err as Error)?.message || '').startsWith('INSUFFICIENT_STOCK');
 }
 
 // DELETE /api/inventory/:id - soft delete
@@ -545,6 +597,7 @@ router.post('/stock-out', async (req: any, res) => {
       .limit(1);
     res.status(201).json(refreshed[0]);
   } catch (error) {
+    if (isStockGuardError(error)) return res.status(400).json({ message: 'Not enough stock' });
     console.error('Stock out error:', error);
     res.status(500).json({ message: 'Failed to issue stock' });
   }
@@ -556,6 +609,7 @@ router.post('/adjustment', async (req: any, res) => {
     const userOutletId = req.user.outletId;
     const { inventoryId, quantity, notes } = req.body;
     if (!inventoryId) return res.status(400).json({ message: 'inventoryId is required' });
+    if (num(quantity) < 0) return res.status(400).json({ message: 'Quantity cannot be negative' });
     const item = await db
       .select()
       .from(inventory)
@@ -571,6 +625,322 @@ router.post('/adjustment', async (req: any, res) => {
   } catch (error) {
     console.error('Adjustment error:', error);
     res.status(500).json({ message: 'Failed to adjust stock' });
+  }
+});
+
+// POST /api/inventory/purchase - receive stock as a typed purchase (ledger PURCHASE)
+router.post('/purchase', async (req: any, res) => {
+  try {
+    const userOutletId = req.user.outletId;
+    const { inventoryId, quantity, supplier, purchasePrice, notes, referenceId } = req.body;
+    if (!inventoryId || num(quantity) <= 0) {
+      return res.status(400).json({ message: 'inventoryId and a positive quantity are required' });
+    }
+    const item = await db
+      .select()
+      .from(inventory)
+      .where(and(eq(inventory.id, inventoryId), eq(inventory.outletId, userOutletId)))
+      .limit(1);
+    if (!item.length) return res.status(404).json({ message: 'Inventory item not found' });
+
+    // Optionally update the item's supplier / purchasePrice from this purchase.
+    const patch: any = {};
+    if (supplier) patch.supplier = supplier;
+    if (purchasePrice && num(purchasePrice) > 0) {
+      patch.purchasePrice = String(num(purchasePrice));
+      // Drive usage-unit cost from purchase unit → usage unit conversion.
+      const conv = num(item[0].conversion) || 1;
+      patch.costPerUsageUnit = String(Math.round((num(purchasePrice) / conv) * 10000) / 10000);
+    }
+    if (item[0].isReusable) {
+      // Reusable stock is tracked by the lifecycle counters, NOT by `quantity`
+      // (which stays reserved for consumable balances so the ledger sum always
+      // reconciles). Record a zero-delta PURCHASE row describing the intake.
+      const available = num(item[0].reusableAvailable) + num(quantity);
+      await db
+        .update(inventory)
+        .set({ reusableAvailable: String(available), ...patch, lastUpdated: new Date() })
+        .where(eq(inventory.id, inventoryId));
+      await db.insert(inventoryMovements).values({
+        id: uuidv4(),
+        inventoryId,
+        outletId: userOutletId,
+        type: 'PURCHASE',
+        quantity: 0,
+        unit: item[0].usageUnit || item[0].unit,
+        beforeStock: num(item[0].quantity),
+        afterStock: num(item[0].quantity),
+        referenceType: 'PURCHASE',
+        referenceId,
+        notes: `Reusable purchase x${num(quantity)} — reusable_available ${num(item[0].reusableAvailable)} → ${available}`,
+      } as any);
+    } else {
+      await db
+        .update(inventory)
+        .set({ ...patch, lastUpdated: new Date() })
+        .where(eq(inventory.id, inventoryId));
+      // Consumable only: increment balance + write PURCHASE ledger row.
+      await recordMovement(item[0], 'PURCHASE', num(quantity), referenceId, notes || 'Purchase', 'PURCHASE');
+    }
+    const refreshed = await db.select().from(inventory).where(eq(inventory.id, inventoryId)).limit(1);
+    res.status(201).json(refreshed[0]);
+  } catch (error) {
+    console.error('Purchase error:', error);
+    res.status(500).json({ message: 'Failed to record purchase' });
+  }
+});
+
+// POST /api/inventory/retail-sale - sell a retail product (ledger RETAIL_SALE)
+router.post('/retail-sale', async (req: any, res) => {
+  try {
+    const userOutletId = req.user.outletId;
+    const { inventoryId, quantity, sellingPrice, notes, referenceId } = req.body;
+    if (!inventoryId || num(quantity) <= 0) {
+      return res.status(400).json({ message: 'inventoryId and a positive quantity are required' });
+    }
+    const item = await db
+      .select()
+      .from(inventory)
+      .where(and(eq(inventory.id, inventoryId), eq(inventory.outletId, userOutletId)))
+      .limit(1);
+    if (!item.length) return res.status(404).json({ message: 'Inventory item not found' });
+    if (num(item[0].quantity) < num(quantity)) {
+      return res.status(400).json({ message: 'Not enough stock for this retail sale' });
+    }
+    if (sellingPrice && num(sellingPrice) > 0) {
+      await db
+        .update(inventory)
+        .set({ sellingPrice: String(num(sellingPrice)) })
+        .where(eq(inventory.id, inventoryId));
+    }
+    await recordMovement(item[0], 'RETAIL_SALE', -num(quantity), referenceId, notes || 'Retail product sale', 'RETAIL_SALE');
+    const refreshed = await db.select().from(inventory).where(eq(inventory.id, inventoryId)).limit(1);
+    res.status(201).json(refreshed[0]);
+  } catch (error) {
+    if (isStockGuardError(error)) return res.status(400).json({ message: 'Not enough stock for this retail sale' });
+    console.error('Retail sale error:', error);
+    res.status(500).json({ message: 'Failed to record retail sale' });
+  }
+});
+
+// POST /api/inventory/waste - record wastage (ledger WASTE, reason required)
+router.post('/waste', async (req: any, res) => {
+  try {
+    const userOutletId = req.user.outletId;
+    const { inventoryId, quantity, reason, notes } = req.body;
+    if (!inventoryId || num(quantity) <= 0) {
+      return res.status(400).json({ message: 'inventoryId and a positive quantity are required' });
+    }
+    if (!reason || !String(reason).trim()) {
+      return res.status(400).json({ message: 'A reason is required for waste' });
+    }
+    const item = await db
+      .select()
+      .from(inventory)
+      .where(and(eq(inventory.id, inventoryId), eq(inventory.outletId, userOutletId)))
+      .limit(1);
+    if (!item.length) return res.status(404).json({ message: 'Inventory item not found' });
+    if (num(item[0].quantity) < num(quantity)) {
+      return res.status(400).json({ message: 'Cannot waste more than current stock' });
+    }
+    await recordMovement(item[0], 'WASTE', -num(quantity), undefined, `${reason}${notes ? ' — ' + notes : ''}`, 'WASTE');
+    const refreshed = await db.select().from(inventory).where(eq(inventory.id, inventoryId)).limit(1);
+    res.status(201).json(refreshed[0]);
+  } catch (error) {
+    if (isStockGuardError(error)) return res.status(400).json({ message: 'Cannot waste more than current stock' });
+    console.error('Waste error:', error);
+    res.status(500).json({ message: 'Failed to record waste' });
+  }
+});
+
+// POST /api/inventory/transfer - transfer stock out to another outlet (ledger TRANSFER)
+router.post('/transfer', async (req: any, res) => {
+  try {
+    const userOutletId = req.user.outletId;
+    const { inventoryId, quantity, targetOutletId, notes } = req.body;
+    if (!inventoryId || num(quantity) <= 0 || !targetOutletId) {
+      return res.status(400).json({ message: 'inventoryId, quantity and targetOutletId are required' });
+    }
+    if (targetOutletId === userOutletId) {
+      return res.status(400).json({ message: 'Target outlet must differ from source outlet' });
+    }
+    const targetOutlet = await db.select().from(outlets).where(eq(outlets.id, targetOutletId)).limit(1);
+    if (!targetOutlet.length) return res.status(404).json({ message: 'Target outlet not found' });
+    const item = await db
+      .select()
+      .from(inventory)
+      .where(and(eq(inventory.id, inventoryId), eq(inventory.outletId, userOutletId)))
+      .limit(1);
+    if (!item.length) return res.status(404).json({ message: 'Inventory item not found' });
+    if (num(item[0].quantity) < num(quantity)) {
+      return res.status(400).json({ message: 'Not enough stock to transfer' });
+    }
+
+    // Find or create the same SKU at the target outlet so both sides of the
+    // transfer have a real inventory row + ledger history.
+    let target = await db
+      .select()
+      .from(inventory)
+      .where(and(eq(inventory.sku, item[0].sku), eq(inventory.outletId, targetOutletId)))
+      .limit(1);
+    if (!target.length) {
+      const {
+        id: _omitId, outletId: _omitOutlet, quantity: _omitQty,
+        createdAt: _c, lastUpdated: _l,
+        ...cloneFields
+      } = item[0];
+      target = await db
+        .insert(inventory)
+        .values({ ...cloneFields, id: uuidv4(), outletId: targetOutletId, quantity: 0 } as any)
+        .returning();
+    }
+
+    // One shared reference for BOTH ledger rows so the pair is auditable as a
+    // single stock movement across outlets. Both sides are applied in ONE
+    // database transaction — a failure rolls back source AND target.
+    const transferRef = uuidv4();
+    await db.transaction(async (tx) => {
+      await applyMovement(tx, item[0], 'TRANSFER', -num(quantity), transferRef, notes || `Transfer out (${transferRef})`, 'TRANSFER');
+      await applyMovement(tx, target[0], 'TRANSFER', num(quantity), transferRef, notes || `Transfer in (${transferRef})`, 'TRANSFER');
+    });
+
+    const refreshed = await db.select().from(inventory).where(eq(inventory.id, inventoryId)).limit(1);
+    res.status(201).json({ source: refreshed[0], targetOutletId, targetInventoryId: target[0].id, transferRef });
+  } catch (error) {
+    if (isStockGuardError(error)) return res.status(400).json({ message: 'Not enough stock to transfer' });
+    console.error('Transfer error:', error);
+    res.status(500).json({ message: 'Failed to record transfer' });
+  }
+});
+
+// GET /api/inventory/dashboard - inventory overview stats (SPA accounting focus)
+router.get('/dashboard', async (req: any, res) => {
+  try {
+    const userOutletId = req.user.outletId;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const totals = await db
+      .select({
+        totalItems: sql<number>`count(*)`,
+        totalValue: sql<number>`coalesce(sum(${inventory.quantity} * ${inventory.costPerUsageUnit}), 0)`,
+        lowStock: sql<number>`count(*) filter (where ${inventory.minimumStock} is not null and ${inventory.quantity} > 0 and ${inventory.quantity} <= ${inventory.minimumStock})`,
+        outOfStock: sql<number>`count(*) filter (where ${inventory.quantity} <= 0)`,
+      })
+      .from(inventory)
+      .where(and(eq(inventory.outletId, userOutletId), eq(inventory.isActive, true)))
+      .limit(1);
+
+    const todaysUsage = await db
+      .select({ total: sql<number>`coalesce(sum(abs(quantity)), 0)` })
+      .from(inventoryMovements)
+      .where(and(
+        eq(inventoryMovements.outletId, userOutletId),
+        eq(inventoryMovements.type, 'RECIPE_CONSUMPTION'),
+        gte(inventoryMovements.createdAt, today),
+      ));
+    const todaysRetail = await db
+      .select({ total: sql<number>`coalesce(sum(abs(quantity)), 0)` })
+      .from(inventoryMovements)
+      .where(and(
+        eq(inventoryMovements.outletId, userOutletId),
+        eq(inventoryMovements.type, 'RETAIL_SALE'),
+        gte(inventoryMovements.createdAt, today),
+      ));
+    const todaysWaste = await db
+      .select({ total: sql<number>`coalesce(sum(abs(quantity)), 0)` })
+      .from(inventoryMovements)
+      .where(and(
+        eq(inventoryMovements.outletId, userOutletId),
+        eq(inventoryMovements.type, 'WASTE'),
+        gte(inventoryMovements.createdAt, today),
+      ));
+
+    // Admin-visibility count of failed recipe consumptions awaiting retry.
+    const pendingRec = await db
+      .select({ c: sql<number>`count(*)` })
+      .from(inventoryReconciliations)
+      .where(and(
+        eq(inventoryReconciliations.outletId, userOutletId),
+        eq(inventoryReconciliations.status, 'PENDING_RECONCILIATION'),
+      ));
+    const pendingReconciliations = num(pendingRec[0]?.c) || 0;
+
+    const recent = await db
+      .select({
+        id: inventoryMovements.id,
+        productName: inventory.productName,
+        type: inventoryMovements.type,
+        quantity: inventoryMovements.quantity,
+        unit: inventoryMovements.unit,
+        notes: inventoryMovements.notes,
+        createdAt: inventoryMovements.createdAt,
+      })
+      .from(inventoryMovements)
+      .innerJoin(inventory, eq(inventoryMovements.inventoryId, inventory.id))
+      .where(eq(inventoryMovements.outletId, userOutletId))
+      .orderBy(desc(inventoryMovements.createdAt))
+      .limit(10);
+
+    res.json({
+      totals: totals[0] || { totalItems: 0, totalValue: 0, lowStock: 0, outOfStock: 0 },
+      todaysUsage: todaysUsage[0]?.total || 0,
+      todaysRetail: todaysRetail[0]?.total || 0,
+      todaysWaste: todaysWaste[0]?.total || 0,
+      pendingReconciliations,
+      recent,
+    });
+  } catch (error) {
+    console.error('Inventory dashboard error:', error);
+    res.status(500).json({ message: 'Failed to fetch inventory dashboard' });
+  }
+});
+
+// GET /api/inventory/reconciliations — failed recipe consumptions awaiting
+// administrative attention (PENDING) plus recently resolved rows.
+router.get('/reconciliations', async (req: any, res) => {
+  try {
+    const userOutletId = req.user.outletId;
+    const pending = await db
+      .select()
+      .from(inventoryReconciliations)
+      .where(and(
+        eq(inventoryReconciliations.outletId, userOutletId),
+        eq(inventoryReconciliations.status, 'PENDING_RECONCILIATION'),
+      ))
+      .orderBy(desc(inventoryReconciliations.createdAt));
+    const resolved = await db
+      .select()
+      .from(inventoryReconciliations)
+      .where(and(
+        eq(inventoryReconciliations.outletId, userOutletId),
+        eq(inventoryReconciliations.status, 'RESOLVED'),
+      ))
+      .orderBy(desc(inventoryReconciliations.createdAt))
+      .limit(20);
+    res.json({ pending, resolved, pendingCount: pending.length });
+  } catch (error) {
+    console.error('Get inventory reconciliations error:', error);
+    res.status(500).json({ message: 'Failed to fetch reconciliations' });
+  }
+});
+
+// POST /api/inventory/reconciliations/:id/resolve — retry a failed recipe
+// consumption. Idempotent: a second call returns already-resolved and never
+// deducts twice. Only ADMIN/DEVELOPER (router-level guard above).
+router.post('/reconciliations/:id/resolve', async (req: any, res) => {
+  try {
+    const outcome = await resolveInventoryReconciliation(req.params.id, req.user.id);
+    if (outcome.status === 'NOT_FOUND') {
+      return res.status(404).json({ message: 'Reconciliation not found' });
+    }
+    if (outcome.status === 'ALREADY_RESOLVED') {
+      return res.status(200).json({ message: 'Already resolved', ...outcome });
+    }
+    res.json({ message: 'Reconciliation resolved', ...outcome });
+  } catch (error) {
+    console.error('Resolve inventory reconciliation error:', error);
+    res.status(500).json({ message: 'Failed to resolve reconciliation' });
   }
 });
 
@@ -717,6 +1087,31 @@ router.delete('/suppliers/:id', async (req: any, res) => {
 });
 
 // ---- Recipes -------------------------------------------------------------
+
+// POST /api/inventory/recipes/:id/link-treatment - attach a recipe to a
+// treatment (treatment_recipes is UNIQUE per treatment; upsert semantics).
+router.post('/recipes/:id/link-treatment', async (req: any, res) => {
+  try {
+    const { treatmentId } = req.body;
+    if (!treatmentId) return res.status(400).json({ message: 'treatmentId is required' });
+    const recipe = await db.select().from(recipes).where(eq(recipes.id, req.params.id)).limit(1);
+    if (!recipe.length) return res.status(404).json({ message: 'Recipe not found' });
+    const treatment = await db.select().from(treatments).where(eq(treatments.id, treatmentId)).limit(1);
+    if (!treatment.length) return res.status(404).json({ message: 'Treatment not found' });
+
+    // Replace any existing link for this treatment (UNIQUE treatment_id).
+    await db.delete(treatmentRecipes).where(eq(treatmentRecipes.treatmentId, treatmentId));
+    await db.insert(treatmentRecipes).values({
+      id: uuidv4(),
+      treatmentId,
+      recipeId: recipe[0].id,
+    } as any);
+    res.json({ message: 'Recipe linked to treatment', treatmentId, recipeId: recipe[0].id });
+  } catch (error) {
+    console.error('Link treatment error:', error);
+    res.status(500).json({ message: 'Failed to link recipe to treatment' });
+  }
+});
 
 // GET /api/inventory/recipes - list recipes (with item count)
 router.get('/recipes', async (req: any, res) => {

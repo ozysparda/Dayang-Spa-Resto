@@ -111,6 +111,8 @@ const en: Record<string, string> = {
   'dash.noStaffData': 'No staff data available',
   'dash.youAreCurrently': 'You are currently',
   'dash.nextBookings': 'Next Bookings',
+  'dash.all': 'All',
+  'dash.break': 'Break',
 
   // Common
   'common.loading': 'Loading...',
@@ -282,6 +284,8 @@ const id: Record<string, string> = {
   'dash.noStaffData': 'Belum ada data karyawan',
   'dash.youAreCurrently': 'Anda saat ini',
   'dash.nextBookings': 'Reservasi Berikutnya',
+  'dash.all': 'Semua',
+  'dash.break': 'Istirahat',
 
   // Common
   'common.loading': 'Memuat...',

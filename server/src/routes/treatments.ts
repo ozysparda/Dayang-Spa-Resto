@@ -5,7 +5,7 @@ import { treatments, activityLogs, bookings, staffProfiles, outlets, treatmentTr
 import { eq, desc, and, gte, lte, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { dispatchPushToUser } from '../routes/push.js';
-import { consumeRecipeForTreatment } from '../utils/recipe.js';
+import { consumeRecipeForTreatment, estimateTreatmentMaterialCost, recordInventoryReconciliation } from '../utils/recipe.js';
 
 const router = Router();
 
@@ -13,6 +13,41 @@ const router = Router();
 // (UI pages remain gated to ADMIN/DEVELOPER; CASHIER gets read access for
 // viewing treatments/treatment history during settlement.)
 router.use(authenticate, authorize('ADMIN', 'DEVELOPER', 'CASHIER'));
+
+// GET /api/treatments/:id/hpp - Material (HPP) cost estimate for a treatment
+// Returns the per-ingredient material cost from the linked recipe, the total
+// material cost, the estimated staff commission, and the resulting gross
+// margin. Commission is kept separate from material cost (never counted as
+// inventory cost).
+router.get('/:id/hpp', async (req: any, res) => {
+  try {
+    const userOutletId = req.user.outletId;
+    const treatment = await db.select().from(treatments).where(eq(treatments.id, req.params.id)).limit(1);
+    if (!treatment.length) return res.status(404).json({ message: 'Treatment not found' });
+
+    const t = treatment[0];
+    const { items, totalCost } = await estimateTreatmentMaterialCost(t.id, userOutletId);
+    const price = Number(t.price || 0);
+    const commission = Math.round(price * Number(t.commissionPercent ?? 20) / 100 * 100) / 100;
+    const materialRatio = price > 0 ? Math.round((totalCost / price) * 10000) / 100 : 0;
+    const grossMargin = price - totalCost - commission;
+
+    res.json({
+      treatmentId: t.id,
+      treatmentName: t.name,
+      price,
+      materialCost: totalCost,
+      materialItems: items,
+      materialRatio,
+      commission,
+      commissionPercent: Number(t.commissionPercent ?? 20),
+      grossMargin,
+    });
+  } catch (error) {
+    console.error('Treatment HPP error:', error);
+    res.status(500).json({ message: 'Failed to fetch treatment HPP' });
+  }
+});
 
 // GET /api/treatments - Get all treatments
 router.get('/', async (req: any, res) => {
@@ -268,11 +303,21 @@ router.post('/input', async (req: any, res) => {
       createdAt: new Date(),
     });
 
-    // Consume raw materials linked to this treatment via its recipe.
+    // Consume raw materials linked to this treatment via its recipe. If the
+    // consumption fails (e.g. insufficient stock) the treatment is already
+    // recorded as COMPLETED and must NOT be rolled back; instead surface a
+    // PENDING_RECONCILIATION marker so an admin can top-up stock + retry.
     try {
       await consumeRecipeForTreatment(treatmentId, userOutletId, txId);
     } catch (recipeErr) {
-      console.error('Recipe consumption failed (non-blocking):', recipeErr);
+      await recordInventoryReconciliation({
+        treatmentId,
+        outletId: userOutletId,
+        referenceId: txId,
+        bookingId: bookingId || undefined,
+        reason: recipeErr instanceof Error ? recipeErr.message : String(recipeErr),
+      });
+      console.error('Recipe consumption failed - reconciliation recorded:', recipeErr);
     }
 
     // Push notification

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
     Plus, Search, Upload, Package, History, ClipboardList, TrendingUp,
-  TrendingDown, Edit3, X, CheckCircle, AlertCircle,
+  TrendingDown, Edit3, X, CheckCircle, AlertCircle, ShoppingCart, Trash2,
 } from 'lucide-react';
 import { useAsyncData, useAsyncMutation } from '../hooks/useAsyncData';
 import toast from 'react-hot-toast';
@@ -82,7 +82,8 @@ export default function Inventory() {
   const [opnameDraft, setOpnameDraft] = useState<Opname | null>(null);
   const [opnameNotes, setOpnameNotes] = useState('');
   const [showActionModal, setShowActionModal] = useState(false);
-  const [actionType, setActionType] = useState<'IN' | 'OUT' | 'ADJUST'>('IN');
+  const [actionType, setActionType] = useState<'IN' | 'OUT' | 'ADJUST' | 'RETAIL' | 'WASTE'>('IN');
+  const [itemTypeFilter, setItemTypeFilter] = useState('');
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   const [actionQty, setActionQty] = useState('');
       const [actionNotes, setActionNotes] = useState('');
@@ -91,6 +92,8 @@ export default function Inventory() {
     sku: '',
     productName: '',
     category: '',
+    itemType: 'BAHAN_TREATMENT',
+    isReusable: false,
     quantity: 0,
     unit: '',
     cost: 0,
@@ -149,6 +152,8 @@ export default function Inventory() {
       sku: '',
       productName: '',
       category: '',
+      itemType: 'BAHAN_TREATMENT',
+      isReusable: false,
       quantity: 0,
       unit: '',
       cost: 0,
@@ -156,7 +161,7 @@ export default function Inventory() {
     });
   };
 
-  const openAction = (item: InventoryItem, type: 'IN' | 'OUT' | 'ADJUST') => {
+  const openAction = (item: InventoryItem, type: 'IN' | 'OUT' | 'ADJUST' | 'RETAIL' | 'WASTE') => {
     setSelectedItem(item);
     setActionType(type);
     setActionQty('');
@@ -172,19 +177,34 @@ export default function Inventory() {
       toast.error('Please enter a valid positive quantity');
       return;
     }
+    if (actionType === 'WASTE' && !actionNotes.trim()) {
+      toast.error('A reason is required to record waste');
+      return;
+    }
     setActionLoading(true);
     try {
       if (actionType === 'IN') {
         await stockIn('/inventory/stock-in', 'POST', { inventoryId: selectedItem.id, quantity: qty, notes: actionNotes });
       } else if (actionType === 'OUT') {
         await stockOut('/inventory/stock-out', 'POST', { inventoryId: selectedItem.id, quantity: qty, notes: actionNotes });
-      } else {
+      } else if (actionType === 'ADJUST') {
         await adjustStock('/inventory/adjustment', 'POST', { inventoryId: selectedItem.id, quantity: qty, notes: actionNotes });
+      } else if (actionType === 'RETAIL') {
+        await stockOut('/inventory/retail-sale', 'POST', { inventoryId: selectedItem.id, quantity: qty, notes: actionNotes });
+      } else if (actionType === 'WASTE') {
+        await stockOut('/inventory/waste', 'POST', { inventoryId: selectedItem.id, quantity: qty, reason: actionNotes });
       }
       setShowActionModal(false);
       refetchItems();
       refetchLowStock();
-      toast.success(actionType === 'IN' ? 'Stock received' : actionType === 'OUT' ? 'Stock issued' : 'Stock adjusted');
+      const successMsg: Record<string, string> = {
+        IN: 'Stock received',
+        OUT: 'Stock issued',
+        ADJUST: 'Stock adjusted',
+        RETAIL: 'Retail sale recorded',
+        WASTE: 'Waste recorded',
+      };
+      toast.success(successMsg[actionType]);
     } catch (error: any) {
       console.error('Stock action failed:', error);
       toast.error(error?.response?.data?.message || 'Stock action failed');
@@ -243,11 +263,23 @@ export default function Inventory() {
     return 'text-gray-600';
   };
 
-  const filteredItems = items.filter((item) =>
-    (item.productName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (item.sku || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (item.category || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const ITEM_TYPE_OPTIONS = [
+    { value: 'BAHAN_TREATMENT', label: 'Bahan Treatment' },
+    { value: 'CONSUMABLE', label: 'Consumable' },
+    { value: 'RETAIL', label: 'Retail Product' },
+    { value: 'REUSABLE', label: 'Reusable / Laundry' },
+    { value: 'OTHER', label: 'Other' },
+  ];
+
+  const filteredItems = items.filter((item) => {
+    const q = searchTerm.toLowerCase();
+    const matchesSearch =
+      (item.productName || '').toLowerCase().includes(q) ||
+      (item.sku || '').toLowerCase().includes(q) ||
+      (item.category || '').toLowerCase().includes(q);
+    const matchesType = !itemTypeFilter || (item.itemType || 'OTHER') === itemTypeFilter;
+    return matchesSearch && matchesType;
+  });
 
   if (loading) {
     return (
@@ -341,9 +373,9 @@ export default function Inventory() {
         </div>
       )}
 
-      {/* Search */}
-      <div className="card mb-6">
-        <div className="relative">
+      {/* Search + type filter */}
+      <div className="card mb-6 flex flex-col md:flex-row gap-3">
+        <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
           <input
             type="text"
@@ -353,6 +385,16 @@ export default function Inventory() {
             className="input-field pl-10"
           />
         </div>
+        <select
+          value={itemTypeFilter}
+          onChange={(e) => setItemTypeFilter(e.target.value)}
+          className="input-field md:w-56"
+        >
+          <option value="">All item types</option>
+          {ITEM_TYPE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
       </div>
 
       {/* Inventory Table */}
@@ -363,6 +405,7 @@ export default function Inventory() {
               <tr>
                 <th>SKU</th>
                 <th>Product Name</th>
+                <th>Type</th>
                 <th>Category</th>
                 <th>Quantity</th>
                                 <th>Unit</th>
@@ -375,7 +418,7 @@ export default function Inventory() {
             <tbody>
               {filteredItems.length === 0 ? (
                 <tr>
-                                  <td colSpan={9} className="text-center py-8 text-gray-500">
+                                  <td colSpan={10} className="text-center py-8 text-gray-500">
                     No inventory items found
                   </td>
                 </tr>
@@ -384,6 +427,22 @@ export default function Inventory() {
                                     <tr key={item.id} className={item.minimumStock && item.quantity <= item.minimumStock ? 'bg-red-50' : ''}>
                     <td className="font-medium">{item.sku}</td>
                     <td>{item.productName}</td>
+                    <td>
+                      {(() => {
+                        const t = ITEM_TYPE_OPTIONS.find((o) => o.value === (item.itemType || 'OTHER'));
+                        const color = item.itemType === 'RETAIL' ? 'bg-purple-100 text-purple-700'
+                          : item.itemType === 'REUSABLE' ? 'bg-blue-100 text-blue-700'
+                          : item.itemType === 'CONSUMABLE' ? 'bg-amber-100 text-amber-700'
+                          : item.itemType === 'BAHAN_TREATMENT' ? 'bg-green-100 text-green-700'
+                          : 'bg-gray-100 text-gray-600';
+                        return (
+                          <span className={`text-xs px-2 py-0.5 rounded ${color}`}>
+                            {t?.label ?? 'Other'}
+                            {item.isReusable ? ' ♻' : ''}
+                          </span>
+                        );
+                      })()}
+                    </td>
                     <td>{item.category}</td>
                     <td className="font-medium">{item.quantity}</td>
                     <td>{item.unit}</td>
@@ -392,8 +451,10 @@ export default function Inventory() {
                     <td>Rp {(item.sellingPrice ?? 0).toLocaleString()}</td>
                     <td className="text-right">
                       <div className="flex gap-1 justify-end">
-                        <button onClick={() => openAction(item, 'IN')} title="Stock In" className="p-1 text-green-600 hover:bg-green-100 rounded"><TrendingUp className="w-4 h-4" /></button>
-                        <button onClick={() => openAction(item, 'OUT')} title="Stock Out" className="p-1 text-red-600 hover:bg-red-100 rounded"><TrendingDown className="w-4 h-4" /></button>
+                        <button onClick={() => openAction(item, 'IN')} title="Purchase / Stock In" className="p-1 text-green-600 hover:bg-green-100 rounded"><TrendingUp className="w-4 h-4" /></button>
+                        <button onClick={() => openAction(item, 'RETAIL')} title="Retail Sale" className="p-1 text-purple-600 hover:bg-purple-100 rounded"><ShoppingCart className="w-4 h-4" /></button>
+                        <button onClick={() => openAction(item, 'OUT')} title="Issue Stock" className="p-1 text-red-600 hover:bg-red-100 rounded"><TrendingDown className="w-4 h-4" /></button>
+                        <button onClick={() => openAction(item, 'WASTE')} title="Waste" className="p-1 text-yellow-600 hover:bg-yellow-100 rounded"><Trash2 className="w-4 h-4" /></button>
                         <button onClick={() => openAction(item, 'ADJUST')} title="Adjust" className="p-1 text-orange-600 hover:bg-orange-100 rounded"><Edit3 className="w-4 h-4" /></button>
                       </div>
                     </td>
@@ -447,6 +508,34 @@ export default function Inventory() {
                   onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                   className="input-field"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Item Type
+                </label>
+                <select
+                  value={formData.itemType}
+                  onChange={(e) => {
+                    const itemType = e.target.value;
+                    setFormData({
+                      ...formData,
+                      itemType,
+                      isReusable: itemType === 'REUSABLE',
+                    });
+                  }}
+                  className="input-field"
+                >
+                  {ITEM_TYPE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+                {formData.itemType === 'REUSABLE' && (
+                  <p className="text-xs text-blue-600 mt-1">
+                    Reusable items (towel/bedsheet/bathrobe) are laundered — treatment
+                    consumption tracks usage without depleting stock.
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -718,8 +807,23 @@ export default function Inventory() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
             <h3 className="text-xl font-bold mb-4">
-              {actionType === 'IN' ? 'Add Stock' : actionType === 'OUT' ? 'Issue Stock' : 'Adjust Stock'}
+              {actionType === 'IN' ? 'Purchase / Add Stock'
+                : actionType === 'OUT' ? 'Issue Stock'
+                : actionType === 'RETAIL' ? 'Retail Sale'
+                : actionType === 'WASTE' ? 'Record Waste'
+                : 'Adjust Stock'}
             </h3>
+            {actionType === 'WASTE' && (
+              <div className="mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
+                Waste reduces stock and is recorded in the ledger with a required reason
+                (expired, spilled, damaged, etc).
+              </div>
+            )}
+            {actionType === 'RETAIL' && (
+              <div className="mb-3 p-3 bg-purple-50 border border-purple-200 rounded text-sm text-purple-800">
+                Retail sale reduces stock directly (RETAIL_SALE). No treatment recipe involved.
+              </div>
+            )}
             <p className="text-sm text-gray-600 mb-4">{selectedItem.productName} — current: {selectedItem.quantity}</p>
             <form onSubmit={handleActionSubmit} className="space-y-4">
               <div>
@@ -737,14 +841,21 @@ export default function Inventory() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {actionType === 'WASTE' ? 'Reason *' : actionType === 'ADJUST' ? 'Reason' : 'Notes'}
+                </label>
                 <input
                   type="text"
+                  required={actionType === 'WASTE'}
                   value={actionNotes}
                   onChange={(e) => setActionNotes(e.target.value)}
                   className="input-field"
                   disabled={actionLoading}
-                  placeholder={actionType === 'ADJUST' ? 'Reason for adjustment' : 'Reason / reference'}
+                  placeholder={
+                    actionType === 'ADJUST' ? 'Reason for adjustment'
+                    : actionType === 'WASTE' ? 'e.g. expired / spilled / damaged'
+                    : 'Reason / reference'
+                  }
                 />
               </div>
               <div className="flex gap-3 pt-2">
