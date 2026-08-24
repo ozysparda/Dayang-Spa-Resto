@@ -21,7 +21,13 @@ router.post('/login', async (req, res) => {
     const user = await db.query.users.findFirst({
       where: (usersTable, { eq }) => eq(usersTable.staffId, staffId),
       with: {
-        staffProfile: true,
+        // Explicitly exclude `gender` from the eager-loaded staffProfile.
+        // The login response does not use gender, and excluding it makes the
+        // endpoint resilient to a missing column on databases that haven't
+        // been migrated yet.
+        staffProfile: {
+          columns: { gender: false },
+        },
       },
     });
 
@@ -94,7 +100,11 @@ router.get('/me', authenticate, async (req: any, res) => {
     const user = await db.query.users.findFirst({
       where: (usersTable, { eq }) => eq(usersTable.id, req.user.id),
       with: {
-        staffProfile: true,
+        // Exclude `gender` from the eager-loaded staffProfile for resilience
+        // against missing columns on un-migrated databases.
+        staffProfile: {
+          columns: { gender: false },
+        },
       },
     });
 

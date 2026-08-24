@@ -41,6 +41,8 @@ async function pushSchema() {
         name VARCHAR(255) NOT NULL,
         email VARCHAR(255),
         phone VARCHAR(50),
+        gender VARCHAR(50) NOT NULL DEFAULT 'Unspecified'
+          CHECK (gender IN ('Male', 'Female', 'Other', 'Unspecified')),
         outlet_id VARCHAR(255) NOT NULL REFERENCES outlets(id),
         is_active BOOLEAN DEFAULT true,
         created_at TIMESTAMP DEFAULT NOW(),
@@ -517,6 +519,18 @@ async function pushSchema() {
 
 // Safe, additive migrations for EXISTING databases (idempotent, non-destructive).
 async function runSafeAdditiveMigrations() {
+  // ---- Staff profiles columns ----
+  // Ensure the gender column exists on pre-existing databases that were
+  // created before the column was added to schema.ts. Without this, any
+  // Drizzle query that selects staffProfile (e.g. login with
+  // `with: { staffProfile: true }`) raises:
+  //   PostgresError: column "users_staffProfile.gender" does not exist
+  await db.execute(sql`
+    ALTER TABLE staff_profiles
+    ADD COLUMN IF NOT EXISTS gender VARCHAR(50) NOT NULL DEFAULT 'Unspecified'
+    CHECK (gender IN ('Male', 'Female', 'Other', 'Unspecified'))
+  `);
+
   // ---- Inventory multi-unit / raw-material columns (Bahan Baku) ----
   await db.execute(sql`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS minimum_stock NUMERIC(14,3)`);
   await db.execute(sql`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS purchase_unit VARCHAR(50)`);
@@ -579,13 +593,22 @@ async function runSafeAdditiveMigrations() {
     console.log('Idempotency key column applied.');
   }
 
-pushSchema()
-  .then(async () => {
-    await runSafeAdditiveMigrations();
-    console.log('Push completed');
-    process.exit(0);
-  })
-  .catch((error) => {
-    console.error('Push failed:', error);
-    process.exit(1);
-  });
+// Only auto-run and exit when executed directly via `npm run db:push`.
+// When imported (e.g., by api/index.ts for auto-migration), the caller
+// is responsible for invoking the functions and handling errors.
+const isDirectRun = process.argv[1]?.endsWith('push.ts');
+
+if (isDirectRun) {
+  pushSchema()
+    .then(async () => {
+      await runSafeAdditiveMigrations();
+      console.log('Push completed');
+      process.exit(0);
+    })
+    .catch((error) => {
+      console.error('Push failed:', error);
+      process.exit(1);
+    });
+}
+
+export { pushSchema, runSafeAdditiveMigrations };

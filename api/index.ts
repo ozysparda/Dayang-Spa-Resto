@@ -22,6 +22,7 @@ import commissionRoutes from '../server/src/routes/commissions.js';
 import settlementRoutes from '../server/src/routes/settlements.js';
 import billRoutes from '../server/src/routes/bills.js';
 import reportRoutes from '../server/src/routes/reports.js';
+import { runSafeAdditiveMigrations } from '../server/src/db/push.js';
 
 dotenv.config();
 
@@ -78,6 +79,17 @@ app.use('/api/*', (req, res) => {
 // Initialize database connection
 connectDB().catch((error) => {
   console.error('Failed to connect to database:', error);
+});
+
+// Auto-run safe additive migrations on every Vercel cold start. These are
+// idempotent (CREATE IF NOT EXISTS / ADD COLUMN IF NOT EXISTS) so they are
+// cheap no-ops once the schema is up to date. This prevents the class of
+// "column does not exist" errors that occur when schema.ts diverges from
+// the production database and `npm run db:push` was not re-run.
+runSafeAdditiveMigrations().catch((error) => {
+  // Non-fatal: the app can still serve endpoints whose queries don't touch
+  // the missing columns. Logged so it shows up in Vercel logs.
+  console.error('Auto-migration warning (non-fatal):', error);
 });
 
 export default app;
